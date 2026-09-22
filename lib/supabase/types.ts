@@ -116,6 +116,8 @@ export type ChecklistItem = {
 };
 
 export type Task = {
+  /** Added in 0013 so a task can point at the key result it serves. */
+  key_result_id?: string | null;
   id: string;
   title: string;
   description: string | null;
@@ -489,6 +491,8 @@ export type TemplateEquipment = {
 
 export type Initiative = {
   id: string;
+  /** Added in 0013 so an event can point at the key result it serves. */
+  key_result_id?: string | null;
   template_id: string | null;
   kind: InitiativeKind;
   initiative_type: string;
@@ -997,6 +1001,109 @@ export type DonorProgressRow = {
   overdue_follow_ups: number;
 };
 
+// ---------------------------------------------------------------
+// Strategy — VMV, year plan, OKRs, KPIs (0013)
+// ---------------------------------------------------------------
+
+export type OrgStatement = {
+  key: string;
+  label: string;
+  body: string;
+  position: number;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type OrgValue = {
+  id: string;
+  name: string;
+  description: string | null;
+  position: number;
+};
+
+/** `number` is what people say out loud — "that's a priority three thing". */
+export type OrgPriority = {
+  id: string;
+  number: number;
+  title: string;
+  description: string | null;
+  is_active: boolean;
+};
+
+export type YearPlanGoal = {
+  id: string;
+  year: number;
+  quarter: number;
+  title: string;
+  detail: string | null;
+  owner_id: string | null;
+  priority_id: string | null;
+  initiative_id: string | null;
+  status: "planned" | "in_progress" | "done" | "dropped";
+  position: number;
+  created_at: string;
+};
+
+export type Objective = {
+  id: string;
+  priority_id: string | null;
+  title: string;
+  description: string | null;
+  year: number;
+  quarter: number | null;
+  owner_id: string | null;
+  status: "draft" | "active" | "done" | "dropped";
+  position: number;
+  created_at: string;
+};
+
+export type KeyResult = {
+  id: string;
+  objective_id: string;
+  title: string;
+  unit: string | null;
+  start_value: number;
+  target_value: number;
+  current_value: number;
+  /** Not every target goes up. "Fewer than 3 dropping out" is real. */
+  direction: "up" | "down";
+  owner_id: string | null;
+  quarter: number | null;
+  year: number | null;
+  updated_at: string;
+  position: number;
+};
+
+export type KeyResultProgress = KeyResult & { percent_complete: number };
+
+export type Kpi = {
+  id: string;
+  key: string;
+  name: string;
+  unit: string | null;
+  cadence: "weekly" | "monthly";
+  /** Whether the CRM can work it out. It can still be overridden. */
+  is_auto: boolean;
+  target: number | null;
+  direction: "up" | "down";
+  description: string | null;
+  is_active: boolean;
+  position: number;
+};
+
+export type KpiValue = {
+  id: string;
+  kpi_id: string;
+  /** Always the first day of the period, so gaps are visible. */
+  period: string;
+  value: number;
+  /** How the number got here. Matters when a count and a calculation disagree. */
+  is_auto: boolean;
+  note: string | null;
+  recorded_by: string | null;
+  recorded_at: string;
+};
+
 type Table<Row, Ins = Partial<Row>, Upd = Partial<Row>> = {
   Row: Row;
   Insert: Ins;
@@ -1080,6 +1187,15 @@ export type Database = {
       business_donors: Table<BusinessDonor, Pick<BusinessDonor, "name"> & Partial<BusinessDonor>>;
       campaigns: Table<Campaign, Pick<Campaign, "name" | "fund_id"> & Partial<Campaign>>;
       expense_claims: Table<ExpenseClaim, Pick<ExpenseClaim, "claimant_id" | "amount" | "spent_on" | "description"> & Partial<ExpenseClaim>>;
+
+      org_statements: Table<OrgStatement, Pick<OrgStatement, "key" | "label"> & Partial<OrgStatement>>;
+      org_values: Table<OrgValue, Pick<OrgValue, "name"> & Partial<OrgValue>>;
+      org_priorities: Table<OrgPriority, Pick<OrgPriority, "number" | "title"> & Partial<OrgPriority>>;
+      year_plan_goals: Table<YearPlanGoal, Pick<YearPlanGoal, "year" | "quarter" | "title"> & Partial<YearPlanGoal>>;
+      objectives: Table<Objective, Pick<Objective, "title" | "year"> & Partial<Objective>>;
+      key_results: Table<KeyResult, Pick<KeyResult, "objective_id" | "title" | "target_value"> & Partial<KeyResult>>;
+      kpis: Table<Kpi, Pick<Kpi, "key" | "name"> & Partial<Kpi>>;
+      kpi_values: Table<KpiValue, Pick<KpiValue, "kpi_id" | "period" | "value"> & Partial<KpiValue>>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -1094,6 +1210,7 @@ export type Database = {
       finance_monthly_by_fund: { Row: MonthlyFundRow; Relationships: [] };
       pledge_progress: { Row: PledgeProgressRow; Relationships: [] };
       donor_progress: { Row: DonorProgressRow; Relationships: [] };
+      key_result_progress: { Row: KeyResultProgress; Relationships: [] };
     };
     Functions: {
       has_permission: { Args: { p_key: string }; Returns: boolean };
@@ -1111,6 +1228,7 @@ export type Database = {
       initiative_readiness: { Args: { p_id: string }; Returns: ReadinessIssue[] };
       apply_template_to_initiative: { Args: { p_id: string }; Returns: number };
       can_see_pledge: { Args: { p_pledge_id: string }; Returns: boolean };
+      refresh_auto_kpis: { Args: { p_period?: string }; Returns: number };
     };
     Enums: {};
     CompositeTypes: {};

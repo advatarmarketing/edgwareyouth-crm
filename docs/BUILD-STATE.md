@@ -8,11 +8,11 @@ The Edgware Youth CRM, built from the Advatar CRM as a template, following
 `docs/SPEC.md`. That spec is the source of truth. Work through its Part C
 prompts one at a time, in order.
 
-**Next action: run migrations 0008 through 0012 in the Supabase SQL editor**,
-then `npm run verify:rls`. After that, Prompt 7 (Strategy).
+**Next action: run migrations 0008 through 0013 in the Supabase SQL editor**,
+then `npm run verify:rls`. After that, Prompt 8 (Messaging).
 
-Prompts 0 through 6 are built. Migrations 0001-0007 are applied and verified;
-0008-0012 are written and parse-checked but NOT yet applied. `npm run verify:rls`
+Prompts 0 through 7 are built. Migrations 0001-0007 are applied and verified;
+0008-0013 are written and parse-checked but NOT yet applied. `npm run verify:rls`
 is the thing to run after any migration — it tests the whole access matrix and
 says plainly if a policy is wrong.
 
@@ -430,3 +430,63 @@ and this is the inverse of that mistake, used on purpose.
 - Event funds (`funds.initiative_id`) are modelled but nothing creates one when
   an event is approved.
 - Receipts are uploaded but not yet displayed; that needs a signed-URL route.
+
+
+## Done in Prompt 7 — strategy
+
+Vision, mission and values; the year plan; OKRs; KPIs. Migration `0013`.
+
+### The chain
+
+Priority -> objective -> key result -> the event or task that moves it.
+`tasks.key_result_id` and `initiatives.key_result_id` were added by ALTER
+rather than designed in, because nothing before this phase knew OKRs existed.
+That chain is the point: it lets somebody ask "why are we running this?" and
+get an answer out of the system rather than out of a meeting.
+
+### Access, straight off the matrix in spec section 3
+
+| | Shura | Sabiqun | Ansar / Muhsinun |
+| --- | --- | --- | --- |
+| VMV | Edit | View | View |
+| Year plan | Edit | View | Only if invited |
+| OKRs | Full | Update the key results they own | Nothing |
+| KPIs | Full | View | Nothing |
+
+"Only if invited" is a per-person `yearplan.view` grant, which the existing
+`profile_permissions.granted` boolean already expresses. There is a check that
+proves a muhsin sees nothing until they are granted it, and then does.
+
+### Two design notes worth keeping
+
+**`key_results.direction`.** Not every target goes up. "Fewer than 3 volunteers
+dropping out" is a real key result, and progress on it counted the usual way
+round would read as failure the whole time.
+
+**A number a human typed is never overwritten by a calculation.**
+`refresh_auto_kpis()` only touches rows where `kpi_values.is_auto` is true. If
+somebody counted the room and the system disagrees, the person who was in the
+room wins, and the disagreement stays visible instead of being resolved
+silently at three in the morning. There is a check that proves it.
+
+Six of the eight KPIs calculate themselves from data the CRM already holds:
+dars attendance, first-timers, active volunteers, donations, pledges collected,
+and meeting actions done on time. Promotions and social followers are typed in —
+the first until the development pathway exists (Prompt 9), the second forever,
+because nothing here talks to the platforms.
+
+### Also changed
+
+The dashboard is no longer a bare placeholder. It now shows the key results you
+personally own first, then objectives and headline KPIs for whoever is
+permitted. The full per-person dashboard is still spec 4.2 in Prompt 9.
+
+### Still to do on this module
+
+- No UI for editing the values or the five priorities; they are seeded and
+  editable only in SQL.
+- A year plan goal can name an event, but nothing creates that link from the
+  event side.
+- `refresh_auto_kpis()` is run by hand from the KPIs page. It belongs on the
+  same pg_cron schedule as the safeguarding purge.
+- Weekly-cadence KPIs are modelled but every seeded KPI is monthly.

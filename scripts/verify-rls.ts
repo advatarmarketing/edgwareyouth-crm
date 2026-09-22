@@ -742,6 +742,165 @@ async function verify() {
     }
   }
 
+  console.log("\n— Strategy: VMV, year plan, OKRs, KPIs (0013) —");
+
+  {
+    const { data: sabiqunProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.sabiqun).single();
+    const { data: muhsinProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.muhsin).single();
+
+    // VMV is the one part of the strategy everybody reads.
+    const { data: vmvMuhsin } = await muhsin.from("org_statements").select("key");
+    check("a muhsin can read the vision and mission", (vmvMuhsin?.length ?? 0) >= 3);
+    const { data: vmvAnsar } = await ansarOnly.from("org_statements").select("key");
+    check("so can an ansar-only member", (vmvAnsar?.length ?? 0) >= 3);
+
+    // An UPDATE that RLS filters out matches no rows and returns NO
+    // error, so "did it error" proves nothing here. The only honest
+    // check is whether the text actually changed.
+    await sabiqun.from("org_statements").update({ body: "rls probe" }).eq("key", "vision");
+    const { data: stillThere } = await admin
+      .from("org_statements").select("body").eq("key", "vision").single();
+    check(
+      "a sabiqun cannot rewrite the vision",
+      stillThere?.body === "Young Muslims revive Islam & reform Edgware (Muslim) Society",
+      `it now reads: ${stillThere?.body}`,
+    );
+
+    // The year plan: sabiqun by tier, others "only if invited".
+    await admin.from("year_plan_goals").delete().like("title", "rls probe%");
+    await admin.from("year_plan_goals").insert({
+      year: new Date().getFullYear(), quarter: 1, title: "rls probe goal",
+    });
+
+    const { data: planSabiqun } = await sabiqun.from("year_plan_goals").select("id");
+    check("a sabiqun sees the year plan", (planSabiqun?.length ?? 0) >= 1);
+
+    const { data: planMuhsin } = await muhsin.from("year_plan_goals").select("id");
+    check("a muhsin does NOT", (planMuhsin?.length ?? 0) === 0);
+
+    if (muhsinProfile) {
+      // "Only if invited" — the shura grant it per person.
+      await admin.from("profile_permissions").upsert(
+        { profile_id: muhsinProfile.id, permission_key: "yearplan.view", granted: true },
+        { onConflict: "profile_id,permission_key" },
+      );
+      const invited = await signIn(ACCOUNTS.muhsin);
+      const { data: planInvited } = await invited.from("year_plan_goals").select("id");
+      check("unless the shura invite them, and then they do", (planInvited?.length ?? 0) >= 1);
+
+      await admin.from("profile_permissions")
+        .delete().eq("profile_id", muhsinProfile.id).eq("permission_key", "yearplan.view");
+    }
+
+    // OKRs.
+    await admin.from("objectives").delete().like("title", "rls probe%");
+    const { data: objective } = await admin
+      .from("objectives")
+      .insert({ title: "rls probe objective", year: new Date().getFullYear() })
+      .select("id")
+      .single();
+
+    if (objective && sabiqunProfile && muhsinProfile) {
+      const { data: ownKr } = await admin
+        .from("key_results")
+        .insert({
+          objective_id: objective.id, title: "rls probe own kr",
+          target_value: 100, start_value: 0, current_value: 10,
+          owner_id: sabiqunProfile.id,
+        })
+        .select("id")
+        .single();
+
+      const { data: otherKr } = await admin
+        .from("key_results")
+        .insert({
+          objective_id: objective.id, title: "rls probe other kr",
+          target_value: 100, start_value: 0, current_value: 10,
+          owner_id: muhsinProfile.id,
+        })
+        .select("id")
+        .single();
+
+      const { data: okrMuhsin } = await muhsin.from("objectives").select("id");
+      check("a muhsin cannot see OKRs at all", (okrMuhsin?.length ?? 0) === 0);
+
+      const { data: okrSabiqun } = await sabiqun.from("objectives").select("id");
+      check("a sabiqun can", (okrSabiqun?.length ?? 0) >= 1);
+
+      if (ownKr) {
+        const { error: ownUpdate } = await sabiqun
+          .from("key_results").update({ current_value: 42 }).eq("id", ownKr.id);
+        check("a sabiqun can move the key result they own", !ownUpdate, ownUpdate?.message);
+
+        const { data: moved } = await admin
+          .from("key_results").select("current_value").eq("id", ownKr.id).single();
+        check("and the value actually changed", Number(moved?.current_value) === 42);
+
+        // The WITH CHECK: updating it must not also hand it away.
+        const { error: reassign } = await sabiqun
+          .from("key_results").update({ owner_id: muhsinProfile.id }).eq("id", ownKr.id);
+        const { data: stillOwned } = await admin
+          .from("key_results").select("owner_id").eq("id", ownKr.id).single();
+        check(
+          "but cannot hand their own missed target to somebody else",
+          stillOwned?.owner_id === sabiqunProfile.id,
+          reassign ? "" : "the reassignment went through",
+        );
+      }
+
+      if (otherKr) {
+        const { error: otherUpdate } = await sabiqun
+          .from("key_results").update({ current_value: 99 }).eq("id", otherKr.id);
+        const { data: untouched } = await admin
+          .from("key_results").select("current_value").eq("id", otherKr.id).single();
+        check(
+          "and cannot move somebody else's",
+          Number(untouched?.current_value) === 10,
+          otherUpdate ? "" : "the update went through",
+        );
+      }
+
+      await admin.from("objectives").delete().eq("id", objective.id);
+    }
+
+    // KPIs: sabiqun view, muhsinun none.
+    const { data: kpiSabiqun } = await sabiqun.from("kpis").select("id");
+    check("a sabiqun can see the KPIs", (kpiSabiqun?.length ?? 0) >= 1);
+
+    const { data: kpiMuhsin } = await muhsin.from("kpis").select("id");
+    check("a muhsin cannot", (kpiMuhsin?.length ?? 0) === 0);
+
+    // A human's number survives a recalculation. This is the rule the
+    // whole KPI design rests on, so it is worth proving rather than
+    // trusting the `where kpi_values.is_auto` clause by eye.
+    const { data: donationsKpi } = await admin
+      .from("kpis").select("id").eq("key", "monthly_donations").single();
+    if (donationsKpi) {
+      const period = "2020-01-01";
+      await admin.from("kpi_values").delete().eq("kpi_id", donationsKpi.id).eq("period", period);
+      await admin.from("kpi_values").insert({
+        kpi_id: donationsKpi.id, period, value: 777, is_auto: false, note: "rls probe manual",
+      });
+
+      await admin.rpc("refresh_auto_kpis", { p_period: period });
+
+      const { data: afterRefresh } = await admin
+        .from("kpi_values").select("value, is_auto")
+        .eq("kpi_id", donationsKpi.id).eq("period", period).maybeSingle();
+      check(
+        "a number typed in by hand survives a recalculation",
+        Number(afterRefresh?.value) === 777 && afterRefresh?.is_auto === false,
+        `it now reads ${afterRefresh?.value}`,
+      );
+
+      await admin.from("kpi_values").delete().eq("kpi_id", donationsKpi.id).eq("period", period);
+    }
+
+    await admin.from("year_plan_goals").delete().like("title", "rls probe%");
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }
