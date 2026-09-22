@@ -408,6 +408,117 @@ async function verify() {
 
   await admin.from("sops").update({ status: "draft" }).in("title", titles);
 
+  console.log("\n— Minutes visibility (0006) —");
+
+  if (shuraRow && sabiqunRow && muhsinRow) {
+    await admin.from("meetings").delete().like("title", "rls probe%");
+
+    async function makeMeeting(title: string, visibility: string, minuteTaker?: string) {
+      const { data } = await admin
+        .from("meetings")
+        .insert({
+          title,
+          meeting_type: "probe",
+          meeting_date: "2026-10-07",
+          minutes_visibility: visibility as never,
+          chair_id: shuraRow!.id,
+          minute_taker_id: minuteTaker ?? shuraRow!.id,
+        })
+        .select("id")
+        .single();
+      return data!.id;
+    }
+
+    async function seesMeeting(client: SupabaseClient<Database>, id: string) {
+      const { data } = await client.from("meetings").select("id").eq("id", id);
+      return (data?.length ?? 0) === 1;
+    }
+
+    // Regression test for 0007.
+    //
+    // `insert ... returning` makes Postgres evaluate the SELECT policy
+    // too. When that policy called a function which re-queried the same
+    // table, the just-inserted row was invisible to it and the whole
+    // statement was rejected — with an error naming the INSERT, which
+    // sent the debugging in entirely the wrong direction. Creating a
+    // meeting and reading the id back is exactly what the app does, so
+    // this is the shape that has to be tested.
+    const { data: returned, error: returningError } = await shura
+      .from("meetings")
+      .insert({
+        title: "rls probe returning",
+        meeting_type: "probe",
+        meeting_date: "2026-10-07",
+        chair_id: shuraRow.id,
+        minute_taker_id: shuraRow.id,
+        minutes_visibility: "shura",
+      })
+      .select("id")
+      .single();
+
+    check(
+      "creating a meeting and reading its id back works",
+      returningError === null && !!returned?.id,
+      returningError?.message ?? "no id came back"
+    );
+
+    // The same shape on sops, which had the identical bug.
+    const { data: sopReturned, error: sopReturningError } = await shura
+      .from("sops")
+      .insert({ title: "rls probe sop", category: "probe" })
+      .select("id")
+      .single();
+
+    check(
+      "creating an SOP and reading its id back works",
+      sopReturningError === null && !!sopReturned?.id,
+      sopReturningError?.message ?? "no id came back"
+    );
+
+    await admin.from("sops").delete().eq("category", "probe");
+
+    const shuraOnly = await makeMeeting("rls probe shura", "shura");
+    check("a shura-only meeting is visible to the shura", await seesMeeting(shura, shuraOnly));
+    check("a shura-only meeting is NOT visible to a sabiqun", !(await seesMeeting(sabiqun, shuraOnly)));
+    check("a shura-only meeting is NOT visible to a muhsin", !(await seesMeeting(muhsin, shuraOnly)));
+
+    const attendeesOnly = await makeMeeting("rls probe attendees", "attendees");
+    check("an attendees-only meeting is NOT visible to a non-attendee", !(await seesMeeting(sabiqun, attendeesOnly)));
+
+    await admin.from("meeting_attendees").insert({ meeting_id: attendeesOnly, profile_id: sabiqunRow.id });
+    check("adding them as an attendee makes it visible", await seesMeeting(sabiqun, attendeesOnly));
+    check("it is still NOT visible to a muhsin who was not there", !(await seesMeeting(muhsin, attendeesOnly)));
+
+    const allStaff = await makeMeeting("rls probe all staff", "all_staff");
+    check("an all-staff meeting is visible to a muhsin", await seesMeeting(muhsin, allStaff));
+    check("an all-staff meeting is visible to an ansar-only member", await seesMeeting(ansarOnly, allStaff));
+
+    // A minute-taker who is not shura must still be able to write up a
+    // shura meeting they were asked to take notes for.
+    const delegated = await makeMeeting("rls probe delegated", "shura", muhsinRow.id);
+    check("a non-shura minute-taker can see the shura meeting they are writing up", await seesMeeting(muhsin, delegated));
+
+    const { data: canRun } = await muhsin.rpc("can_run_meeting", { p_meeting_id: delegated });
+    check("and can run it", canRun === true);
+
+    const { data: cannotRun } = await sabiqun.rpc("can_run_meeting", { p_meeting_id: allStaff });
+    check("but somebody merely attending cannot run it", cannotRun !== true);
+
+    // Unresolved lines are working material and may hold half-written
+    // notes about people. Only the people running the meeting see them.
+    await admin
+      .from("meeting_unresolved")
+      .insert({ meeting_id: allStaff, line: "ACTION @Nobody: x", reason: "probe" });
+
+    const { data: seenByAttendee } = await sabiqun.from("meeting_unresolved").select("id").eq("meeting_id", allStaff);
+    check("unresolved lines are hidden from someone who only attended", (seenByAttendee?.length ?? 0) === 0);
+
+    const { data: seenByRunner } = await shura.from("meeting_unresolved").select("id").eq("meeting_id", allStaff);
+    check("but visible to whoever is running it", (seenByRunner?.length ?? 0) === 1);
+
+    await admin.from("meetings").delete().like("title", "rls probe%");
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

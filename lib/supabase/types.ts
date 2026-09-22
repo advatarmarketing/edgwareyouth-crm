@@ -378,7 +378,10 @@ export type Database = {
       sop_versions: Table<SopVersion, Omit<SopVersion, "id" | "changed_at"> & Partial<SopVersion>>;
       meeting_templates: Table<MeetingTemplate, Pick<MeetingTemplate, "name" | "meeting_type"> & Partial<MeetingTemplate>>;
       meetings: Table<Meeting, Pick<Meeting, "title" | "meeting_type" | "meeting_date"> & Partial<Meeting>>;
-      meeting_attendees: Table<MeetingAttendee, MeetingAttendee>;
+      // `attendance` has a database default, so an insert that only
+      // names the person is valid — the type has to allow that or
+      // adding somebody to a meeting fails to compile.
+      meeting_attendees: Table<MeetingAttendee, Pick<MeetingAttendee, "meeting_id" | "profile_id"> & Partial<MeetingAttendee>>;
       meeting_agenda_items: Table<MeetingAgendaItem, Pick<MeetingAgendaItem, "meeting_id" | "title"> & Partial<MeetingAgendaItem>>;
       meeting_actions: Table<MeetingAction, Pick<MeetingAction, "meeting_id" | "text"> & Partial<MeetingAction>>;
       meeting_decisions: Table<MeetingDecision, Pick<MeetingDecision, "meeting_id" | "text"> & Partial<MeetingDecision>>;
