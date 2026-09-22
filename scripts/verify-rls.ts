@@ -901,6 +901,192 @@ async function verify() {
     await admin.from("year_plan_goals").delete().like("title", "rls probe%");
   }
 
+  console.log("\n— Messaging: per-person read receipts (0014) —");
+
+  {
+    const { data: shuraProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.shura).single();
+    const { data: sabiqunProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.sabiqun).single();
+    const { data: muhsinProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.muhsin).single();
+
+    const { data: announcements } = await admin
+      .from("channels").select("id").eq("kind", "announcement").single();
+
+    if (announcements && shuraProfile && sabiqunProfile && muhsinProfile) {
+      await admin.from("messages").delete().like("body", "rls probe%");
+
+      const { data: toEveryone } = await admin
+        .from("messages")
+        .insert({ channel_id: announcements.id, author_id: shuraProfile.id, body: "rls probe everyone" })
+        .select("id")
+        .single();
+
+      // Targeted at the shura only.
+      const { data: toShura } = await admin
+        .from("messages")
+        .insert({
+          channel_id: announcements.id, author_id: shuraProfile.id,
+          body: "rls probe shura only", audience_all: false,
+        })
+        .select("id")
+        .single();
+
+      if (toShura) {
+        await admin.from("message_audience_tiers").insert({ message_id: toShura.id, tier_key: "shura" });
+      }
+
+      const { data: muhsinSees } = await muhsin
+        .from("messages").select("id, body").eq("channel_id", announcements.id);
+      check(
+        "an announcement to everyone reaches a muhsin",
+        (muhsinSees ?? []).some((m) => m.body === "rls probe everyone"),
+      );
+      check(
+        "one targeted at the shura does NOT",
+        !(muhsinSees ?? []).some((m) => m.body === "rls probe shura only"),
+        `they saw: ${(muhsinSees ?? []).map((m) => m.body).join(" | ")}`,
+      );
+
+      const { data: sabiqunSees } = await sabiqun
+        .from("messages").select("id, body").eq("channel_id", announcements.id);
+      check(
+        "nor a sabiqun",
+        !(sabiqunSees ?? []).some((m) => m.body === "rls probe shura only"),
+      );
+
+      if (toEveryone) {
+        // THE FIX. One person reading must not mark it read for anyone
+        // else — that shared flag is what this whole migration replaces.
+        await muhsin.from("message_reads").insert({
+          message_id: toEveryone.id, profile_id: muhsinProfile.id,
+        });
+
+        const { data: muhsinUnread } = await muhsin
+          .from("channel_unread").select("unread").eq("channel_id", announcements.id).maybeSingle();
+        const { data: sabiqunUnread } = await sabiqun
+          .from("channel_unread").select("unread").eq("channel_id", announcements.id).maybeSingle();
+
+        check(
+          "after a muhsin reads it, it is read for THEM",
+          (muhsinUnread?.unread ?? 0) === 0,
+          `they still have ${muhsinUnread?.unread ?? 0} unread`,
+        );
+        check(
+          "and still unread for the sabiqun — no shared flag",
+          (sabiqunUnread?.unread ?? 0) >= 1,
+          `the sabiqun has ${sabiqunUnread?.unread ?? 0} unread`,
+        );
+
+        // Nobody marks a message read on somebody else's behalf.
+        //
+        // Aimed at the SHURA's id, not the muhsin's: the muhsin already
+        // has a read row, so that insert would fail on the primary key
+        // and the check would pass without RLS having been involved at
+        // all. Only a policy can refuse this one.
+        const { error: forgedRead } = await sabiqun.from("message_reads").insert({
+          message_id: toEveryone.id, profile_id: shuraProfile.id,
+        });
+        check(
+          "nobody can mark a message read for another person",
+          deniedByPolicy(forgedRead),
+          forgedRead ? `${forgedRead.code}: ${forgedRead.message}` : "the forged read was accepted",
+        );
+        const { data: shuraRead } = await admin
+          .from("message_reads").select("profile_id")
+          .eq("message_id", toEveryone.id).eq("profile_id", shuraProfile.id).maybeSingle();
+        check("and no read row was written for them", shuraRead == null);
+
+        // The author sees who has and has not read it.
+        const { data: status } = await shura
+          .from("announcement_read_status").select("profile_id, read_at").eq("message_id", toEveryone.id);
+        const readers = (status ?? []).filter((r) => r.read_at != null);
+        const nonReaders = (status ?? []).filter((r) => r.read_at == null);
+        check(
+          "the sender can see who has read it",
+          readers.some((r) => r.profile_id === muhsinProfile.id),
+        );
+        check(
+          "and who has not",
+          nonReaders.some((r) => r.profile_id === sabiqunProfile.id),
+          `${nonReaders.length} have not read it`,
+        );
+      }
+
+      // Posting to announcements is a permission, not a membership.
+      const { error: muhsinPost } = await muhsin.from("messages").insert({
+        channel_id: announcements.id, author_id: muhsinProfile.id, body: "rls probe muhsin post",
+      });
+      check(
+        "a muhsin cannot post an announcement",
+        deniedByPolicy(muhsinPost),
+        muhsinPost ? `${muhsinPost.code}: ${muhsinPost.message}` : "the post went through",
+      );
+
+      await admin.from("messages").delete().like("body", "rls probe%");
+    }
+
+    // Team channels follow the team.
+    const { data: financeChannel } = await admin
+      .from("channels").select("id").eq("kind", "team").eq("team_key", "finance").maybeSingle();
+    if (financeChannel && muhsinProfile) {
+      await admin.from("messages").delete().like("body", "rls probe team%");
+      await admin.from("messages").insert({
+        channel_id: financeChannel.id, body: "rls probe team message",
+      });
+      const { data: seen } = await muhsin.from("messages").select("id").eq("channel_id", financeChannel.id);
+      check(
+        "somebody not on the finance team cannot read its channel",
+        (seen?.length ?? 0) === 0,
+        `they saw ${seen?.length ?? 0}`,
+      );
+      await admin.from("messages").delete().like("body", "rls probe team%");
+    }
+  }
+
+  console.log("\n— Messaging: event channels follow the event (0014) —");
+
+  {
+    await admin.from("initiatives").delete().like("title", "rls probe event%");
+
+    const { data: initiative } = await admin
+      .from("initiatives")
+      .insert({ title: "rls probe event channel", initiative_type: "seerah_night", stage: "idea" })
+      .select("id")
+      .single();
+
+    if (initiative) {
+      const { data: before } = await admin
+        .from("channels").select("id").eq("initiative_id", initiative.id).maybeSingle();
+      check("an unapproved event has no channel", before == null);
+
+      await admin.from("initiatives").update({ stage: "planning" }).eq("id", initiative.id);
+      const { data: after } = await admin
+        .from("channels").select("id, is_archived").eq("initiative_id", initiative.id).maybeSingle();
+      check("approving it creates one", after != null);
+      check("which is not archived", after?.is_archived === false);
+
+      // Closing needs a signed-off retrospective (0008), so give it one.
+      await admin.from("initiative_retrospectives").insert({
+        initiative_id: initiative.id,
+        summary: Array(120).fill("word").join(" "),
+        is_final: true,
+      });
+      await admin.from("initiatives").update({ stage: "closed" }).eq("id", initiative.id);
+
+      const { data: closed } = await admin
+        .from("channels").select("is_archived").eq("initiative_id", initiative.id).maybeSingle();
+      check(
+        "and closing the event archives it rather than deleting it",
+        closed?.is_archived === true,
+        closed == null ? "the channel is gone entirely" : "it is still open",
+      );
+
+      await admin.from("initiatives").delete().eq("id", initiative.id);
+    }
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

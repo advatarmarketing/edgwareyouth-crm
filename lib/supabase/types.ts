@@ -1104,6 +1104,89 @@ export type KpiValue = {
   recorded_at: string;
 };
 
+// ---------------------------------------------------------------
+// Messaging (0014)
+// ---------------------------------------------------------------
+
+export type ChannelKind = "announcement" | "team" | "event" | "dm";
+
+export type Channel = {
+  id: string;
+  kind: ChannelKind;
+  name: string | null;
+  description: string | null;
+  team_key: TeamKey | null;
+  initiative_id: string | null;
+  /** Archived, not deleted — an event's conversation is part of its record. */
+  is_archived: boolean;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type ChannelMember = {
+  channel_id: string;
+  profile_id: string;
+  is_owner: boolean;
+  joined_at: string;
+};
+
+export type Message = {
+  id: string;
+  channel_id: string;
+  author_id: string | null;
+  body: string;
+  reply_to_id: string | null;
+  /** False means the tiers and teams named in the audience tables. */
+  audience_all: boolean;
+  created_at: string;
+  edited_at: string | null;
+  /** Soft delete: a gap people can see beats a silently rewritten thread. */
+  deleted_at: string | null;
+};
+
+export type MessageAudienceTier = { message_id: string; tier_key: TierKey };
+export type MessageAudienceTeam = { message_id: string; team_key: TeamKey };
+
+/**
+ * A row means this person has seen this message.
+ *
+ * The two-column primary key is the fix the spec asks for: the
+ * template had one shared `read` flag per message, so whoever opened a
+ * channel first marked it read for everybody.
+ */
+export type MessageRead = {
+  message_id: string;
+  profile_id: string;
+  read_at: string;
+};
+
+export type MessageMention = { message_id: string; profile_id: string };
+
+export type MessageAttachment = {
+  id: string;
+  message_id: string;
+  path: string;
+  filename: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+};
+
+export type ChannelUnreadRow = {
+  channel_id: string;
+  unread: number;
+  latest_at: string;
+};
+
+/** read_at null means they have not read it. The absence IS the answer. */
+export type AnnouncementReadStatusRow = {
+  message_id: string;
+  channel_id: string;
+  profile_id: string;
+  full_name: string | null;
+  read_at: string | null;
+};
+
 type Table<Row, Ins = Partial<Row>, Upd = Partial<Row>> = {
   Row: Row;
   Insert: Ins;
@@ -1196,6 +1279,15 @@ export type Database = {
       key_results: Table<KeyResult, Pick<KeyResult, "objective_id" | "title" | "target_value"> & Partial<KeyResult>>;
       kpis: Table<Kpi, Pick<Kpi, "key" | "name"> & Partial<Kpi>>;
       kpi_values: Table<KpiValue, Pick<KpiValue, "kpi_id" | "period" | "value"> & Partial<KpiValue>>;
+
+      channels: Table<Channel, Pick<Channel, "kind"> & Partial<Channel>>;
+      channel_members: Table<ChannelMember, Pick<ChannelMember, "channel_id" | "profile_id"> & Partial<ChannelMember>>;
+      messages: Table<Message, Pick<Message, "channel_id" | "body"> & Partial<Message>>;
+      message_audience_tiers: Table<MessageAudienceTier, MessageAudienceTier>;
+      message_audience_teams: Table<MessageAudienceTeam, MessageAudienceTeam>;
+      message_reads: Table<MessageRead, Pick<MessageRead, "message_id" | "profile_id"> & Partial<MessageRead>>;
+      message_mentions: Table<MessageMention, MessageMention>;
+      message_attachments: Table<MessageAttachment, Pick<MessageAttachment, "message_id" | "path" | "filename"> & Partial<MessageAttachment>>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -1211,6 +1303,8 @@ export type Database = {
       pledge_progress: { Row: PledgeProgressRow; Relationships: [] };
       donor_progress: { Row: DonorProgressRow; Relationships: [] };
       key_result_progress: { Row: KeyResultProgress; Relationships: [] };
+      channel_unread: { Row: ChannelUnreadRow; Relationships: [] };
+      announcement_read_status: { Row: AnnouncementReadStatusRow; Relationships: [] };
     };
     Functions: {
       has_permission: { Args: { p_key: string }; Returns: boolean };
@@ -1229,6 +1323,8 @@ export type Database = {
       apply_template_to_initiative: { Args: { p_id: string }; Returns: number };
       can_see_pledge: { Args: { p_pledge_id: string }; Returns: boolean };
       refresh_auto_kpis: { Args: { p_period?: string }; Returns: number };
+      can_see_channel: { Args: { p_channel_id: string }; Returns: boolean };
+      can_post_in_channel: { Args: { p_channel_id: string }; Returns: boolean };
     };
     Enums: {};
     CompositeTypes: {};

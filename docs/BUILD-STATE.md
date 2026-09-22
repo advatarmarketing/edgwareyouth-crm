@@ -8,11 +8,12 @@ The Edgware Youth CRM, built from the Advatar CRM as a template, following
 `docs/SPEC.md`. That spec is the source of truth. Work through its Part C
 prompts one at a time, in order.
 
-**Next action: run migrations 0008 through 0013 in the Supabase SQL editor**,
-then `npm run verify:rls`. After that, Prompt 8 (Messaging).
+**Next action: run migrations 0008 through 0015 in the Supabase SQL editor**,
+then `npm run verify:rls`. After that, Prompt 9 (media, development pathway,
+resources, dashboards).
 
-Prompts 0 through 7 are built. Migrations 0001-0007 are applied and verified;
-0008-0013 are written and parse-checked but NOT yet applied. `npm run verify:rls`
+Prompts 0 through 8 are built. Migrations 0001-0007 are applied and verified;
+0008-0015 are written and parse-checked but NOT yet applied. `npm run verify:rls`
 is the thing to run after any migration — it tests the whole access matrix and
 says plainly if a policy is wrong.
 
@@ -490,3 +491,80 @@ permitted. The full per-person dashboard is still spec 4.2 in Prompt 9.
 - `refresh_auto_kpis()` is run by hand from the KPIs page. It belongs on the
   same pg_cron schedule as the safeguarding purge.
 - Weekly-cadence KPIs are modelled but every seeded KPI is monthly.
+
+
+## Done in Prompt 8 — messaging
+
+Migrations `0014` (tables) and `0015` (the attachments bucket).
+
+The template's messaging was stripped in Prompt 0, so this is built rather
+than upgraded — which is the better outcome, because the defect the spec
+asks to fix was baked into its shape.
+
+### The fix
+
+The template had ONE `read` flag per message. Whoever opened a channel first
+marked it read for everybody, so "has the team seen the safeguarding notice?"
+could not be answered — and worse, appeared to be answered.
+
+`message_reads` has a two-column primary key: one row per message per person.
+There is no shared flag to regress to. A missing row means that person has not
+read it, which is a real answer rather than missing data, and it is what makes
+`announcement_read_status` possible — the view that tells a sender exactly who
+has not read what they posted.
+
+### Channels
+
+| Kind | Membership | Who can post |
+| --- | --- | --- |
+| Announcement | Implicit — every active member | `announcements.post` |
+| Team | Follows `team_members`, kept in step by a trigger | Members |
+| Event | Created on approval, archived on close, by trigger | Members |
+| Direct | Whoever started it, plus who they added | Members |
+
+The announcements channel deliberately has **no membership rows**. Sixty rows
+that must be kept in step with the members table is a bug waiting to happen,
+so `can_see_channel()` special-cases it.
+
+Event and team channels are created and archived by **triggers on
+`initiatives` and `team_members`**, not by the server actions. An event can
+reach 'planning' from a server action, a script or the Supabase dashboard, and
+the channel should exist in all three. Archived, never deleted: an event's
+conversation is part of its record.
+
+### Targeting
+
+An announcement is either `audience_all` or aimed at the tiers and teams named
+in `message_audience_tiers` / `_teams`. This is real visibility, not a label —
+the `messages` read policy enforces it, so a message aimed at the shura is not
+in the rows a muhsin gets back at all.
+
+Written as ONE policy rather than two. Two permissive policies get OR'd
+together, which is exactly how a targeted message ends up visible to everyone
+by accident.
+
+### Mentions
+
+`lib/messaging/mentions.ts` is pure and Supabase-free, with 11 tests. Same rule
+as the meeting parser: **nothing is guessed**. An ambiguous "@Yusuf" matching
+two people notifies neither and says so; a name nobody has is reported back to
+the sender rather than dropped. An exact match beats a longer prefix, otherwise
+nobody called Sam could ever be mentioned while a Samir exists.
+
+Mentions resolve only against people who can actually see the channel, so
+@-ing somebody into a conversation they have no access to does not send them a
+notification about a page they cannot open.
+
+### Still to do on this module
+
+- No realtime. The page is `force-dynamic` and refreshes on navigation;
+  `RealtimeRefresh` exists in components and is not wired up here.
+- Attachments upload and list but do not render — images need a signed-URL
+  route before they can be shown inline.
+- No unread badge in the nav; `channel_unread` is queried on the messages page
+  only. `NavBadge` was one of the removed template components.
+- Editing and soft-deleting a message are modelled (`edited_at`, `deleted_at`)
+  with a policy, but there is no UI for either.
+- The attachments storage policy grants read to any active member rather than
+  only to people who can see the message, because the object path carries no
+  channel. Stated in `0015` rather than left implied.
