@@ -1,6 +1,6 @@
 # Build state — read this first
 
-Last updated at the end of **Prompt 3**.
+Last updated at the end of **Prompt 4a**.
 
 ## What this is
 
@@ -159,6 +159,34 @@ Section 4.5, in `supabase/migrations/0005_sops.sql`.
 by whoever holds that responsibility, and a check against the insurer's and
 the local authority's requirements.** They are a sensible starting point
 written from the spec, not policy. That is why they are drafts.
+
+## Done in Prompt 4a
+
+`lib/meetings/parse-notes.ts` and `lib/meetings/dates.ts`. Pure functions, no
+Supabase import, no AI, no external API. `npm test` — 36 tests.
+
+- `ACTION @Name: what by <date>`, indented lines as steps, `DECISION:` lines,
+  and `[ ]` / `[x]` Notion to-dos that name somebody.
+- Names match nickname, first name, surname or full name.
+- Dates: `12/10` (day-first, always), `12/10/26`, `12 Oct`, `12th October`,
+  `October 12th`, `tomorrow`, `today`, `Friday`, `next Friday`.
+- **Relative dates resolve against the MEETING date**, which is a required
+  argument and is never defaulted to `new Date()` — a default is precisely
+  how that bug gets reintroduced. Notes pasted three days late still produce
+  the dates the room agreed. There is a test that passes a meeting date in
+  2001 to prove it.
+- Nothing is guessed and nothing is silently dropped. Two people called Yusuf
+  produce an unmatched line listing both, never a coin flip. Steps under a
+  failed action travel with it to the review screen.
+- Prose is ignored without complaint — flagging every sentence would bury the
+  lines that need attention.
+
+**Known ambiguity, handled deliberately:** "next Friday" and bare "Friday"
+both resolve to the next occurrence after the meeting. British usage is split
+on whether "next Friday" means the following week. Rather than guess, 4b's
+review screen must show the resolved **calendar date** rather than echoing
+the phrase, so a minute-taker who meant the other one can see it and change
+it before publishing.
 
 ## Three fixes made that were not in the spec
 

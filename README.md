@@ -30,7 +30,9 @@ npm run dev
 | `npm run dev` | Local dev server on :3000 |
 | `npm run build` | Production build |
 | `npm run seed:test-accounts` | One test login per tier |
+| `npm test` | Unit tests (the meeting notes parser) |
 | `npm run verify:rls` | Proves the security rules hold |
+| `npm run seed:sops` | Seeds the 20 starter SOPs as drafts |
 
 ## How access works
 
