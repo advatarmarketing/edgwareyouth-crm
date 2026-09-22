@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import type { PermissionKey } from "@/lib/supabase/types";
+import type { AppNotification, PermissionKey } from "@/lib/supabase/types";
 import { signOutAction } from "@/app/app/actions";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NavIcon, type NavIconName } from "@/components/NavIcon";
 import { BackButton } from "@/components/BackButton";
+import { NotificationBell } from "@/components/NotificationBell";
 
 interface NavLink {
   href: string;
@@ -54,7 +55,13 @@ const LINKS: NavLink[] = [
   { href: "/app/admin", label: "Admin", icon: "logins", needs: "members.manage" },
 ];
 
-export function AppNav({ permissions }: { permissions: PermissionKey[] }) {
+export function AppNav({
+  permissions,
+  notifications,
+}: {
+  permissions: PermissionKey[];
+  notifications: AppNotification[];
+}) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const tabStrip = useRef<HTMLDivElement>(null);
@@ -113,6 +120,7 @@ export function AppNav({ permissions }: { permissions: PermissionKey[] }) {
         </Link>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: "auto" }}>
+          <NotificationBell initial={notifications} />
           <ThemeToggle />
 
           <Link href="/app/settings/password" className="nav-links" title="Change your password" style={topLink(isActive("/app/settings/password"))}>
@@ -211,6 +219,11 @@ export function AppNav({ permissions }: { permissions: PermissionKey[] }) {
               {link.label}
             </Link>
           ))}
+
+          <Link href="/app/settings/notifications" style={menuRow(isActive("/app/settings/notifications"))}>
+            <NavIcon name="profile" />
+            Notifications
+          </Link>
 
           <Link href="/app/settings/password" style={menuRow(isActive("/app/settings/password"))}>
             <NavIcon name="password" />

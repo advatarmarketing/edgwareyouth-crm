@@ -75,7 +75,88 @@ export type PermissionKey =
   | "media.manage"
   | "media.edit"
   | "development.view_all"
-  | "resources.upload";
+  | "resources.upload"
+  | "tasks.view_all"
+  | "calendar.view_org";
+
+export type ChecklistSource = "sop" | "meeting" | "event" | "okr" | "manual";
+export type TaskStatus = "todo" | "doing" | "done" | "blocked";
+export type TaskPriority = "low" | "normal" | "high";
+
+export type NotificationKind =
+  | "task_new"
+  | "task_due_soon"
+  | "task_overdue"
+  | "task_blocked"
+  | "meeting_pack"
+  | "mention"
+  | "event_decision"
+  | "expense_decision"
+  | "announcement"
+  | "sop_to_read";
+
+export type Checklist = {
+  id: string;
+  title: string | null;
+  source: ChecklistSource;
+  source_id: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type ChecklistItem = {
+  id: string;
+  checklist_id: string;
+  text: string;
+  depth: number;
+  position: number;
+  done: boolean;
+  done_by: string | null;
+  done_at: string | null;
+};
+
+export type Task = {
+  id: string;
+  title: string;
+  description: string | null;
+  owner_id: string | null;
+  created_by: string | null;
+  due_date: string | null;
+  priority: TaskPriority;
+  status: TaskStatus;
+  blocked_reason: string | null;
+  checklist_id: string | null;
+  source: ChecklistSource;
+  source_id: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type TaskComment = {
+  id: string;
+  task_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+};
+
+export type AppNotification = {
+  id: string;
+  user_id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string | null;
+  href: string | null;
+  read: boolean;
+  emailed_at: string | null;
+  created_at: string;
+};
+
+export type NotificationPreference = {
+  user_id: string;
+  kind: NotificationKind;
+  email_enabled: boolean;
+};
 
 export type Profile = {
   id: string;
@@ -163,6 +244,12 @@ export type Database = {
           Partial<ProfilePermission>
       >;
       member_notes: Table<MemberNote, Pick<MemberNote, "profile_id" | "body"> & Partial<MemberNote>>;
+      checklists: Table<Checklist>;
+      checklist_items: Table<ChecklistItem, Pick<ChecklistItem, "checklist_id" | "text"> & Partial<ChecklistItem>>;
+      tasks: Table<Task, Pick<Task, "title"> & Partial<Task>>;
+      task_comments: Table<TaskComment, Pick<TaskComment, "task_id" | "body"> & Partial<TaskComment>>;
+      notifications: Table<AppNotification, Pick<AppNotification, "user_id" | "kind" | "title"> & Partial<AppNotification>>;
+      notification_preferences: Table<NotificationPreference, NotificationPreference>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -178,6 +265,7 @@ export type Database = {
       current_tier: { Args: Record<string, never>; Returns: string | null };
       is_active_member: { Args: Record<string, never>; Returns: boolean };
       my_permissions: { Args: Record<string, never>; Returns: string[] };
+      can_see_task: { Args: { p_task_id: string }; Returns: boolean };
     };
     Enums: {};
     CompositeTypes: {};

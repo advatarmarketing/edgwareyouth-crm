@@ -1,6 +1,6 @@
 # Build state — read this first
 
-Last updated at the end of **Prompt 1**.
+Last updated at the end of **Prompt 2**.
 
 ## What this is
 
@@ -85,6 +85,33 @@ Media, Finance and Events ship active. Dawah/Outreach and Tarbiyah exist with
 `is_active = false` and are hidden everywhere until the shura switch them on —
 a single update, not a migration (Part B decision 5).
 
+## Done in Prompt 2
+
+Sections 4.1, 4.4, 4.7 and 4.16, in
+`supabase/migrations/0003_checklists_tasks_notifications.sql`.
+
+- **The checklist engine is real now.** `lib/checklist/parse.ts` (pure, no
+  database) plus `lib/checklist/index.ts` for storing and cloning. SOPs,
+  meetings and events all call these rather than growing their own splitter.
+  `cloneChecklist` exists ready for "Run this SOP" in Prompt 3.
+- **Tasks**: owner, due date, priority, status, checklist, comments, source.
+  "Blocked needs a reason" is a database CHECK constraint, not a form rule, so
+  a task cannot be parked silently from a script either.
+- **Calendar**: month grid, Monday-first. Only the task-deadlines layer has
+  data; the other five are listed and disabled with a note saying which prompt
+  fills them. Islamic dates and school holidays are deliberately not faked with
+  a hardcoded table — a wrong date on a calendar people plan around is worse
+  than no date.
+- **Notifications**: bell with a live unread count over Supabase realtime,
+  per-person email on/off per type, and `/api/cron/reminders` for the
+  two-days-before and overdue sweep. That route is guarded by `CRON_SECRET`
+  and returns 401 without it — it writes notification rows, so unguarded it
+  would be spammable by anyone who guessed the path.
+- `vercel.json` schedules the sweep at 07:00 daily.
+
+Email is **not** sent yet. `notify()` writes the row; a sender still needs
+wiring (Resend is the obvious pick with Vercel). The bell works regardless.
+
 ## Three fixes made that were not in the spec
 
 1. **`next` 14.2.15 → 14.2.35.** The pinned version has a published security
@@ -109,9 +136,9 @@ that needs them — the pattern is worth reusing, the schema underneath is not.
 | Removed | Restore during |
 |---|---|
 | `ChatShell`, `components/messaging/*`, `TeamChannel`, `TeamDirectMessages` | Prompt 8 (messaging) |
-| `NotificationBell`, `NavBadge`, `MessagesNavBadge`, `api/notifications/flush` | Prompt 2 (notifications) |
-| `TaskList`, `TodoPanel` | Prompt 2 (tasks) |
-| `MonthCalendar`, `UpcomingStrip`, `SchedulePanel` | Prompt 2 (calendar) |
+| `NavBadge`, `MessagesNavBadge` | Prompt 8 (messaging) — the bell was rebuilt in Prompt 2 |
+| ~~`TaskList`, `TodoPanel`~~ | done — rebuilt in Prompt 2 |
+| ~~`MonthCalendar`, `UpcomingStrip`~~ | done — calendar rebuilt in Prompt 2 |
 | `ResourceChecklistEditor` (parsing already saved in `lib/checklist/`) | Prompt 3 (SOPs) |
 | `ResourcesPanel`, `DocumentsList`, `DocumentUpload` | Prompt 9 (resources) |
 | `AvatarUpload`, `ProfilePanel`, `lib/profile-fields.ts` | not yet restored — member photos still to do |
@@ -133,7 +160,9 @@ that needs them — the pattern is worth reusing, the schema underneath is not.
 - Availability is a free-text field. Spec 4.3 wants something filterable
   ("has a camera and is free Saturday"); the skills array supports the first
   half of that, availability does not yet support the second.
-- `lib/checklist/parse.ts` is written and typed but nothing calls it yet.
-  Prompt 2 wires it in.
+- No email sender. `notify()` writes the bell row; nothing sends mail yet.
+- `CRON_SECRET` is not set anywhere yet — the reminders route returns 500
+  until it is, in both `.env.local` and Vercel.
+- The dashboard is still a placeholder (spec 4.2, due in Prompt 9).
 - The repo is **public**. For a system holding under-18s' medical, allergy and
   safeguarding data plus DBS status, private is the better default.

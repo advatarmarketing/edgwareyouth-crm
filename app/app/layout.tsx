@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { AppNav } from "@/components/AppNav";
 import { loadViewer } from "@/lib/permissions";
-import type { PermissionKey } from "@/lib/supabase/types";
+import { createClient } from "@/lib/supabase/server";
+import type { AppNotification, PermissionKey } from "@/lib/supabase/types";
 
 const ALL_KEYS: PermissionKey[] = [
   "members.view_directory", "members.view_contact", "members.manage", "members.view_notes",
@@ -26,9 +27,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   const granted = ALL_KEYS.filter((key) => viewer.can(key));
 
+  // The bell's first page, fetched here so it paints filled in. RLS
+  // returns the caller's own rows only, so there is nothing to filter.
+  const { data: notifications } = await createClient()
+    .from("notifications")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(20);
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
-      <AppNav permissions={granted} />
+      <AppNav permissions={granted} notifications={(notifications ?? []) as AppNotification[]} />
       {children}
     </div>
   );
