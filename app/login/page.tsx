@@ -1,37 +1,43 @@
 "use client";
 
-import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { login, type LoginState } from "./actions";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-type Tab = "client" | "staff";
-
 const initialState: LoginState = { error: null };
 
+/**
+ * One sign-in form, no tabs.
+ *
+ * The template had Client and Staff tabs because it served two
+ * different audiences. This CRM is staff only — no parents,
+ * participants or public log in — so a chooser here would be asking a
+ * question with one answer, and implying an account type that does not
+ * exist.
+ *
+ * Where somebody lands after signing in is decided by their profile in
+ * login(), never by anything on this screen.
+ */
 export default function LoginPage() {
-  const [tab, setTab] = useState<Tab>("client");
   const [state, formAction] = useFormState(login, initialState);
 
   return (
     <main className="login-shell">
       <div className="login-card">
-        {/* The only switch a signed-out visitor gets. It is here
-            because this is the first screen anyone sees, and because
-            the rest of the app's toggle lives in the nav, which does
-            not exist until you are signed in. */}
+        {/* The only switch a signed-out visitor gets. The app's own
+            toggle lives in the nav, which does not exist until you are
+            signed in. */}
         <div className="login-theme-toggle">
           <ThemeToggle />
         </div>
 
-        {/* The real wordmark replaces the text treatment here. The
-            card's background is var(--surface), which is exactly the
-            colour baked into each logo file's backdrop, so it sits
-            flush against the card in both themes. */}
+        {/* Both logo files are transparent cut-outs, so CSS picks the
+            black lettering in light mode and the white in dark. */}
         <div style={{ marginBottom: 10 }}>
           <Logo height={34} />
         </div>
+
         <p
           style={{
             fontFamily: "var(--font-mono)",
@@ -44,65 +50,15 @@ export default function LoginPage() {
           SIGN IN TO YOUR ACCOUNT
         </p>
 
-        {/* Exactly two tabs — Client and Staff. No CEO tab, no
-            account picker. Switching tabs only clears the fields and
-            changes the hint copy below; it sets no role and performs
-            no autofill. Routing after sign-in is entirely determined
-            by profiles.role via the login() server action. */}
-        <div
-          role="tablist"
-          aria-label="Login type"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 8,
-            marginBottom: 24,
-          }}
-        >
-          {(["client", "staff"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={tab === t}
-              onClick={() => setTab(t)}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                padding: "10px 0",
-                borderRadius: "var(--radius-sm)",
-                border: `1px solid ${tab === t ? "var(--text-1)" : "var(--border)"}`,
-                background: tab === t ? "var(--surface-2)" : "transparent",
-                color: tab === t ? "var(--text-1)" : "var(--text-3)",
-                cursor: "pointer",
-              }}
-            >
-              {t === "client" ? "Client" : "Staff"}
-            </button>
-          ))}
-        </div>
-
-        <form action={formAction} key={tab} autoComplete="off">
-          <Field
-            label="Email"
-            name="email"
-            type="email"
-            autoComplete="off"
-          />
-          <Field
-            label="Password"
-            name="password"
-            type="password"
-            autoComplete="off"
-          />
+        <form action={formAction} autoComplete="off">
+          <Field label="Email" name="email" type="email" />
+          <Field label="Password" name="password" type="password" />
 
           {state.error && (
             <p
               role="alert"
               style={{
-                color: "var(--status-closed)",
+                color: "var(--danger-fg)",
                 fontFamily: "var(--font-body)",
                 fontSize: 13,
                 margin: "0 0 16px",
@@ -124,26 +80,14 @@ export default function LoginPage() {
             textAlign: "center",
           }}
         >
-          {tab === "client"
-            ? "Client access to your project and planner."
-            : "Staff, videographer, and CEO logins use this tab."}
+          Accounts are created by the shura. Speak to them if you need one.
         </p>
       </div>
     </main>
   );
 }
 
-function Field({
-  label,
-  name,
-  type,
-  autoComplete,
-}: {
-  label: string;
-  name: string;
-  type: string;
-  autoComplete: string;
-}) {
+function Field({ label, name, type }: { label: string; name: string; type: string }) {
   return (
     <label style={{ display: "block", marginBottom: 16 }}>
       <span
@@ -162,7 +106,7 @@ function Field({
       <input
         name={name}
         type={type}
-        autoComplete={autoComplete}
+        autoComplete="off"
         defaultValue=""
         required
         style={{
@@ -192,8 +136,8 @@ function SubmitButton() {
         marginTop: 8,
         borderRadius: "var(--radius-sm)",
         border: "none",
-        background: "var(--text-1)",
-        color: "var(--bg)",
+        background: "var(--accent)",
+        color: "var(--accent-fg)",
         fontFamily: "var(--font-body)",
         fontWeight: 600,
         fontSize: 14,
