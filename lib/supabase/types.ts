@@ -195,6 +195,89 @@ export type SopVersion = {
   changed_at: string;
 };
 
+export type MinutesVisibility = "shura" | "attendees" | "all_staff";
+export type MeetingStatus = "draft" | "review" | "published";
+export type Attendance = "expected" | "present" | "apologies" | "absent";
+export type AgendaOrigin = "template" | "matters_arising" | "suggested" | "manual";
+
+export type MeetingTemplate = {
+  id: string;
+  name: string;
+  meeting_type: string;
+  agenda_sections: string[];
+  minutes_visibility: MinutesVisibility;
+  default_chair_id: string | null;
+  default_minute_taker_id: string | null;
+  is_active: boolean;
+  position: number;
+};
+
+export type Meeting = {
+  id: string;
+  template_id: string | null;
+  title: string;
+  meeting_type: string;
+  meeting_date: string;
+  starts_at: string | null;
+  chair_id: string | null;
+  minute_taker_id: string | null;
+  minutes_visibility: MinutesVisibility;
+  status: MeetingStatus;
+  recording_path: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  published_at: string | null;
+};
+
+export type MeetingAttendee = {
+  meeting_id: string;
+  profile_id: string;
+  attendance: Attendance;
+};
+
+export type MeetingAgendaItem = {
+  id: string;
+  meeting_id: string;
+  title: string;
+  notes: string | null;
+  position: number;
+  origin: AgendaOrigin;
+  suggested_by: string | null;
+  created_at: string;
+};
+
+export type MeetingAction = {
+  id: string;
+  meeting_id: string;
+  agenda_item_id: string | null;
+  owner_id: string | null;
+  text: string;
+  due_date: string | null;
+  steps: string[];
+  task_id: string | null;
+  source_line: string | null;
+  created_at: string;
+};
+
+export type MeetingDecision = {
+  id: string;
+  meeting_id: string;
+  agenda_item_id: string | null;
+  text: string;
+  created_at: string;
+};
+
+export type MeetingUnresolved = {
+  id: string;
+  meeting_id: string;
+  line: string;
+  reason: string;
+  candidates: { id: string; name: string }[] | null;
+  steps: string[];
+  created_at: string;
+};
+
 export type Profile = {
   id: string;
   full_name: string | null;
@@ -293,6 +376,13 @@ export type Database = {
       sop_visible_people: Table<SopVisiblePerson, SopVisiblePerson>;
       sop_reads: Table<SopRead, SopRead>;
       sop_versions: Table<SopVersion, Omit<SopVersion, "id" | "changed_at"> & Partial<SopVersion>>;
+      meeting_templates: Table<MeetingTemplate, Pick<MeetingTemplate, "name" | "meeting_type"> & Partial<MeetingTemplate>>;
+      meetings: Table<Meeting, Pick<Meeting, "title" | "meeting_type" | "meeting_date"> & Partial<Meeting>>;
+      meeting_attendees: Table<MeetingAttendee, MeetingAttendee>;
+      meeting_agenda_items: Table<MeetingAgendaItem, Pick<MeetingAgendaItem, "meeting_id" | "title"> & Partial<MeetingAgendaItem>>;
+      meeting_actions: Table<MeetingAction, Pick<MeetingAction, "meeting_id" | "text"> & Partial<MeetingAction>>;
+      meeting_decisions: Table<MeetingDecision, Pick<MeetingDecision, "meeting_id" | "text"> & Partial<MeetingDecision>>;
+      meeting_unresolved: Table<MeetingUnresolved, Pick<MeetingUnresolved, "meeting_id" | "line" | "reason"> & Partial<MeetingUnresolved>>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -310,6 +400,8 @@ export type Database = {
       my_permissions: { Args: Record<string, never>; Returns: string[] };
       can_see_task: { Args: { p_task_id: string }; Returns: boolean };
       can_see_sop: { Args: { p_sop_id: string }; Returns: boolean };
+      can_see_meeting: { Args: { p_meeting_id: string }; Returns: boolean };
+      can_run_meeting: { Args: { p_meeting_id: string }; Returns: boolean };
     };
     Enums: {};
     CompositeTypes: {};
