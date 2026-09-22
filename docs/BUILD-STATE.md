@@ -1,6 +1,6 @@
 # Build state — read this first
 
-Last updated at the end of **Prompt 2**.
+Last updated at the end of **Prompt 3**.
 
 ## What this is
 
@@ -114,10 +114,12 @@ wiring (Resend is the obvious pick with Vercel). The bell works regardless.
 
 ## Verified, not just built
 
-`npm run verify:rls` — 34 checks, all passing. Tier defaults; both awkward
+`npm run verify:rls` — 47 checks, all passing. Tier defaults; both awkward
 shapes ("Ansar only", "Sabiqun + Ansar"); the directory's column masking;
 notes isolation; overrides that grant *and* revoke; deactivation; task
-visibility; the blocked-needs-a-reason constraint; notification privacy.
+visibility; the blocked-needs-a-reason constraint; notification privacy; and
+SOP visibility by tier, by team and by named person, including that drafts
+stay invisible and that cash-handling does not reach anyone outside finance.
 
 Smoke-tested in a browser: signed in as `shura@test.local` and
 `muhsin@test.local`. The nav, the invite button and the inactive filter all
@@ -135,6 +137,28 @@ correctly.
    require a policy refusal (42501) or the CHECK constraint (23514);
    `PGRST205` can never read as a pass. A security test that passes for the
    wrong reason is worse than no test.
+
+## Done in Prompt 3
+
+Section 4.5, in `supabase/migrations/0005_sops.sql`.
+
+- The SOP's own checklist is the **master** and is not tickable in the UI.
+  "Run this SOP" clones it onto a task — which is what `cloneChecklist` was
+  built for in Prompt 2.
+- Visibility is three tables (tiers, teams, named people) resolved by
+  `can_see_sop()`. `visible_to_all` is an explicit column, **not** "no rows
+  means everyone" — an absent rule must not default to broadcasting a
+  safeguarding or cash-handling SOP to the whole organisation.
+- Read receipts store the version read, so an edit bumps the version and
+  every tick becomes "updated — re-read" with nothing to clear by hand. The
+  old text goes to `sop_versions` before being overwritten.
+- All 20 starter SOPs seeded as drafts with real first-draft content
+  (`npm run seed:sops`). Re-running never overwrites a published one.
+
+**The safeguarding, missing-person and photo-consent SOPs need a real review
+by whoever holds that responsibility, and a check against the insurer's and
+the local authority's requirements.** They are a sensible starting point
+written from the spec, not policy. That is why they are drafts.
 
 ## Three fixes made that were not in the spec
 

@@ -324,6 +324,90 @@ async function verify() {
     await admin.from("notifications").delete().eq("title", "rls probe note");
   }
 
+  console.log("\n— SOP visibility (0005) —");
+
+  // Titles from scripts/seed-sops.ts. Each is a different visibility
+  // shape, which is the point of testing these three specifically.
+  const EVERYONE_SOP = "Venue set-up and pack-down";        // visible_to_all
+  const MEDIA_SOP = "Social media posting and approval";    // shura + media team
+  const FINANCE_SOP = "Handling cash and mosque collections"; // shura + finance team
+
+  const titles = [EVERYONE_SOP, MEDIA_SOP, FINANCE_SOP];
+
+  const { data: sopRows } = await admin.from("sops").select("id, title, status").in("title", titles);
+  const sopId = new Map((sopRows ?? []).map((r) => [r.title, r.id]));
+
+  async function sees(client: SupabaseClient<Database>, title: string): Promise<boolean> {
+    const id = sopId.get(title);
+    if (!id) return false;
+    const { data } = await client.from("sops").select("id").eq("id", id);
+    return (data?.length ?? 0) === 1;
+  }
+
+  // Everything seeds as a draft, and a draft is visible only to
+  // sops.manage — so this is the state to check before publishing.
+  check("a draft SOP is invisible to a muhsin", !(await sees(muhsin, EVERYONE_SOP)));
+  check("a draft SOP is invisible to a sabiqun", !(await sees(sabiqun, EVERYONE_SOP)));
+  check("someone with sops.manage sees drafts", await sees(shura, EVERYONE_SOP));
+
+  // Publish the three and re-check. Reverted at the end so the library
+  // is left exactly as the seed made it.
+  await admin.from("sops").update({ status: "published" }).in("title", titles);
+
+  check("a published everyone-SOP reaches a muhsin", await sees(muhsin, EVERYONE_SOP));
+  check("a published everyone-SOP reaches an ansar-only member", await sees(ansarOnly, EVERYONE_SOP));
+
+  // The sabiqun test account is in the media team; the muhsin is in no
+  // team at all.
+  check("the media-team SOP reaches the sabiqun who is in media", await sees(sabiqun, MEDIA_SOP));
+  check("the media-team SOP does NOT reach a muhsin", !(await sees(muhsin, MEDIA_SOP)));
+
+  // The one that matters most: cash handling must not be readable by
+  // somebody outside finance, whatever their tier.
+  check("the finance-team SOP does NOT reach a sabiqun outside finance", !(await sees(sabiqun, FINANCE_SOP)));
+  check("the finance-team SOP does NOT reach a muhsin", !(await sees(muhsin, FINANCE_SOP)));
+  check("the finance-team SOP does NOT reach an ansar-only member", !(await sees(ansarOnly, FINANCE_SOP)));
+
+  // Named-person visibility, on top of tier and team.
+  if (muhsinRow && sopId.get(FINANCE_SOP)) {
+    await admin
+      .from("sop_visible_people")
+      .insert({ sop_id: sopId.get(FINANCE_SOP)!, profile_id: muhsinRow.id });
+
+    check("naming a person individually lets them see it", await sees(muhsin, FINANCE_SOP));
+
+    await admin
+      .from("sop_visible_people")
+      .delete()
+      .eq("sop_id", sopId.get(FINANCE_SOP)!)
+      .eq("profile_id", muhsinRow.id);
+
+    check("removing them again takes it away", !(await sees(muhsin, FINANCE_SOP)));
+  }
+
+  // Nobody but a manager may edit one.
+  //
+  // Note this does NOT assert an error. An UPDATE that no row passes
+  // the policy for affects zero rows and returns success — Postgres
+  // does not distinguish "you may not" from "nothing matched". So the
+  // only honest check is that the row is unchanged afterwards, read
+  // back with the service role.
+  await sabiqun.from("sops").update({ title: "hijacked" }).eq("id", sopId.get(EVERYONE_SOP)!);
+
+  const { data: afterWrite } = await admin
+    .from("sops")
+    .select("title")
+    .eq("id", sopId.get(EVERYONE_SOP)!)
+    .single();
+
+  check(
+    "a sabiqun cannot edit an SOP",
+    afterWrite?.title === EVERYONE_SOP,
+    `the title is now "${afterWrite?.title}"`
+  );
+
+  await admin.from("sops").update({ status: "draft" }).in("title", titles);
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }
