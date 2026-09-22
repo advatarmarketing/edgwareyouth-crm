@@ -8,12 +8,13 @@ The Edgware Youth CRM, built from the Advatar CRM as a template, following
 `docs/SPEC.md`. That spec is the source of truth. Work through its Part C
 prompts one at a time, in order.
 
-**Next action: Prompt 2** (the checklist engine, tasks, calendar, notifications).
+**Next action: run migrations 0008, 0009 and 0010 in the Supabase SQL editor**,
+then `npm run verify:rls`. After that, Prompt 6 (Finance).
 
-Prompts 0 and 1 are done. Nothing has been run against a real database yet —
-`docs/SETUP.md` is the walkthrough, and `npm run verify:rls` is the thing to
-run first once Supabase exists. It tests the whole access matrix and will tell
-you plainly if a policy is wrong.
+Prompts 0 through 5 are built. Migrations 0001-0007 are applied and verified;
+0008-0010 are written and parse-checked but NOT yet applied. `npm run verify:rls`
+is the thing to run after any migration — it tests the whole access matrix and
+says plainly if a policy is wrong.
 
 ## Where things are
 
@@ -280,3 +281,80 @@ that needs them — the pattern is worth reusing, the schema underneath is not.
 - The dashboard is still a placeholder (spec 4.2, due in Prompt 9).
 - The repo is **public**. For a system holding under-18s' medical, allergy and
   safeguarding data plus DBS status, private is the better default.
+
+
+## Done in Prompt 5 — events, programmes and ihsan
+
+Two departures from the spec, both agreed with the user on 2026-09-22 and both
+recorded in `docs/SPEC.md` sections 4.8 and 4.9. Read those before changing
+anything here, because both are easy to undo by accident.
+
+### 1. One planning object, not three
+
+`initiatives` with `kind` in ('event', 'programme', 'campaign'). A weekly dars,
+a camp and a fundraising campaign share roles, milestones, a run sheet, risks, a
+budget and a retrospective; only recurrence differs. A separate `programmes`
+table later would have duplicated all of it and drifted. The route stays
+`/app/events` because that is what people call it.
+
+### 2. Ihsan is not a section
+
+The spec made it section 15 of the event file. We did not build that. A section
+filled in last is filled in after every real decision is already made.
+
+Instead:
+- the emotional journey is in the Overview (`feels_arriving`, `feels_peak`,
+  `feels_leaving`, `one_thing`) because it is an aim;
+- the peak moment is a row in the run sheet with a time and an owner
+  (`initiative_runsheet.is_peak_moment`);
+- every other sense is a prompt on the section where the decision happens
+  (`initiative_ihsan_prompts.section`), answered in writing, editable per event;
+- the 1-5 ratings are at retrospective, per rater, as columns
+  (`initiative_ihsan_ratings`) — that is what makes six events comparable;
+- `initiative_readiness()` is the safety net that replaces the missing section.
+
+**If an `ihsan_items` table ever appears, this decision has been reversed by
+accident.**
+
+### Files
+
+| File | What it holds |
+| --- | --- |
+| `supabase/migrations/0008_initiatives.sql` | 24 tables, the readiness function, the close guard, the purge function, all RLS |
+| `supabase/migrations/0009_pg_cron_safeguarding.sql` | Schedules the purge. Separate on purpose so it can fail alone |
+| `supabase/migrations/0010_seed_templates.sql` | The seven templates with their roles, milestones, run sheets, ihsan prompts, risks and kit |
+| `app/app/events/` | List, propose, the file, live run sheet, retrospective |
+| `app/app/events/[id]/IhsanPrompts.tsx` | The prompts, rendered inside each section rather than collected |
+
+### Things worth knowing
+
+- **Milestones are dated backwards** from `starts_on` using negative
+  `offset_days`, the same convention as `parseTemplateLines()` in
+  `lib/checklist/parse.ts`.
+- **`apply_template_to_initiative()` runs in SQL, not in the server action**, so
+  an approval cannot half-happen. An approval that creates nine of fifteen tasks
+  is worse than one that fails.
+- **Safeguarding is its own table with its own row policy**, not columns on
+  `initiatives`. Medical and allergy data about under-18s is special-category
+  under UK GDPR, and a row boundary is what RLS is actually good at.
+- **`initiative_basics` is a security DEFINER view**, unlike `member_directory`.
+  The sensitive columns are simply not in it, so there is nothing to bypass by
+  querying the base table directly.
+- **The 100-word retrospective rule is a CHECK constraint** that only bites when
+  `is_final` is true, so a draft in progress is never blocked by it.
+- **Closing requires a signed-off retrospective**, enforced by a trigger rather
+  than by the form, so nothing closes quietly from a script or the dashboard.
+- Policies on `initiatives` test **that row's own columns only** — the 0007
+  lesson. `can_see_initiative()` is for child tables, where it asks about a
+  different table.
+
+### Still to do on this module
+
+- The file is read-and-edit for the fields that matter, but there is no UI yet to
+  **add** rows to equipment, speakers, volunteers, risks, budget or the media
+  plan — they arrive from the template. Adding a row is a form per table.
+- Assigning a person to a role is not wired to a picker yet.
+- `initiative_participants` has no UI at all. It is the most sensitive table in
+  the system and deserves its own screen with a DPIA behind it.
+- The event message channel (Prompt 8) is not created on approval; nothing exists
+  to create it into yet.

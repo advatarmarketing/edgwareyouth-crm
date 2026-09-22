@@ -270,6 +270,15 @@ DECISION: Seerah night moves to the first Friday of November
 
 ### 4.8 Events (same system every time)
 
+**Changed from the original spec, with the user, on 2026-09-22: ONE planning object.**
+A weekly dars, a residential camp and a fundraising campaign share nearly the whole file
+— roles, milestones, a run sheet, risks, a budget, a retrospective, follow-up. Only
+recurrence really differs. Building `events` now and a parallel `programmes` table later
+would mean writing all of that twice and watching the two copies drift. So the table is
+`initiatives`, with `kind` in ('event', 'programme', 'campaign'). The route is still
+`/app/events`, because that is what people call it.
+
+
 **Types (each a template):** Weekly dars/talk (light), Seerah night, Halaqah, Internal retreat, Residential/camp (heavy), Fundraiser, Sports/activity day, Outreach stall, Collaboration with another org.
 
 Templates are editable by shura, and lessons from each retrospective can be pushed into the template.
@@ -300,18 +309,41 @@ On approval, the template creates milestones and tasks **dated backwards from th
 18. Retrospective (required to close) — went well, challenges, improve, change, 100+ word summary, people engaged, media uploaded, feedback, "push lessons into template"
 19. Follow-up — new attendees invited to next dars/halaqah, thank-yous to volunteers and speakers within 48 hours
 
-### 4.9 Ihsan & the senses (in every event)
+### 4.9 Ihsan & the senses — NOT a section
 
-Short version for a dars, full version for a camp. Each item becomes a checklist task with an owner.
+**Changed from the original spec, with the user, on 2026-09-22.**
 
-- **Emotional journey** — what they feel arriving, at the peak moment, leaving; the one thing they take home; the designed peak moment (recitation, story, silence, du'a together)
-- **Sight** — clean venue set up before anyone arrives, lighting, signage, slides, layout (circle vs rows), team identifiable
-- **Sound** — opening recitation, sound check, acoustics, planned silence, what's heard on arrival
-- **Smell** — bukhoor/oud, fresh air, clean toilets and wudu area, food timing
-- **Taste** — dates and water on arrival, food quality, one memorable thing
-- **Touch** — temperature, seating, a physical takeaway, a proper welcome at the door
-- **Personal touches** — names, welcome team, follow-up message within 24 hours
-- Retrospective rates each sense 1–5
+The original spec made this section 15 of the event file. That was the wrong shape and
+we did not build it. A section you fill in last is a section you fill in *after every
+real decision has already been made* — the layout is fixed, the run sheet is full, the
+money is spent. It can only ever be a post-rationalisation, and a checklist is the
+fastest way to hollow out the very thing it is meant to protect.
+
+So ihsan is integrated into the planning rather than appended to it:
+
+- **The emotional journey sits in the Overview** (section 1), beside the aims, because it
+  *is* an aim. `feels_arriving`, `feels_peak`, `feels_leaving`, `one_thing`.
+- **The peak moment is a row in the run sheet** — a real time, with a real owner
+  (`initiative_runsheet.is_peak_moment`). Not a tick. A moment that is not scheduled
+  does not happen.
+- **Every other sense is a prompt attached to the section where that decision is taken.**
+  Smell hangs off Venue and Equipment, sound off the run sheet, touch off the rota.
+  `initiative_ihsan_prompts.section` is what carries this.
+- Prompts take a **written answer**, not a checkbox. "Bukhoor" can be ticked without a
+  thought; "who is lighting it, and when?" has to be answered with a name.
+- Prompts are **editable per event**. If the venue has no power for a diffuser you
+  rewrite the prompt — you do not tick it and lie.
+- **The 1–5 ratings survive**, at retrospective, as columns rather than prose. That is
+  the part that compounds: six events in, you can see smell scores 2 every time and the
+  cause is that nobody owns the toilets. Free text can never tell you that. Scored per
+  rater, not per event — one person's 5 and another's 2 means they were at different
+  events, which is the finding.
+- **The cost of integrating** is that scattered prompts are easier to skip than an
+  obviously-empty section. `initiative_readiness()` is the answer: computed before the
+  thing goes Live, never stored, and it names the section rather than a checklist.
+
+There is no ihsan table holding a list of items. If one ever appears, this decision has
+been reversed by accident.
 
 ### 4.10 Finance
 
