@@ -798,6 +798,205 @@ export type AuditLogEntry = {
 /** What initiative_readiness() returns: empty array means ready. */
 export type ReadinessIssue = { section: string; issue: string };
 
+// ---------------------------------------------------------------
+// Finance (0011)
+// ---------------------------------------------------------------
+
+export type FundKind = "general" | "zakat" | "sadaqah" | "waqf" | "event";
+
+export type Fund = {
+  id: string;
+  key: string;
+  name: string;
+  kind: FundKind;
+  initiative_id: string | null;
+  description: string | null;
+  is_active: boolean;
+  position: number;
+};
+
+export type TransactionSource =
+  | "pledge"
+  | "standing_order"
+  | "business_donor"
+  | "campaign"
+  | "collection"
+  | "card_machine"
+  | "event"
+  | "grant"
+  | "other";
+
+export type FinanceTransaction = {
+  id: string;
+  fund_id: string;
+  direction: "in" | "out";
+  /** Always positive. `direction` carries the sign. */
+  amount: number;
+  occurred_on: string;
+  description: string | null;
+  source: TransactionSource;
+  member_id: string | null;
+  initiative_id: string | null;
+  campaign_id: string | null;
+  /** A collection counted by one person is not counted. */
+  counted_by_1: string | null;
+  counted_by_2: string | null;
+  recorded_by: string | null;
+  created_at: string;
+};
+
+/**
+ * Moving money between funds.
+ *
+ * A trigger refuses anything out of a zakat fund into a fund of any
+ * other kind. See 0011 — it is enforced in the database because it is
+ * a rule about money held in trust, not a rule about this app.
+ */
+export type FundTransfer = {
+  id: string;
+  from_fund_id: string;
+  to_fund_id: string;
+  amount: number;
+  reason: string | null;
+  moved_by: string | null;
+  at: string;
+};
+
+export type Pledge = {
+  id: string;
+  profile_id: string;
+  fund_id: string;
+  amount: number;
+  started_on: string;
+  ended_on: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+export type PledgePaymentStatus = "paid" | "missed" | "partial" | "waived";
+
+export type PledgePayment = {
+  id: string;
+  pledge_id: string;
+  /** Always the first of the month. */
+  month: string;
+  status: PledgePaymentStatus;
+  amount_paid: number | null;
+  recorded_by: string | null;
+  recorded_at: string;
+};
+
+export type DonorTarget = {
+  profile_id: string;
+  target_count: number;
+  set_by: string | null;
+  updated_at: string;
+};
+
+/** A member's own list. Private to them and the shura. */
+export type Donor = {
+  id: string;
+  owner_id: string;
+  name: string;
+  contact: string | null;
+  approached_on: string | null;
+  pledged_amount: number | null;
+  received_amount: number | null;
+  next_follow_up: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type BusinessDonor = {
+  id: string;
+  name: string;
+  contact: string | null;
+  kind: "regular" | "one_off";
+  last_contacted_on: string | null;
+  owner_id: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type Campaign = {
+  id: string;
+  name: string;
+  platform: string | null;
+  fund_id: string;
+  target: number | null;
+  /** Entered by hand. Nothing here talks to LaunchGood. */
+  raised: number;
+  raised_updated_at: string | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  status: "planning" | "live" | "finished";
+  created_at: string;
+};
+
+export type ExpenseClaimStatus = "submitted" | "approved" | "paid" | "rejected";
+
+export type ExpenseClaim = {
+  id: string;
+  claimant_id: string;
+  amount: number;
+  spent_on: string;
+  description: string;
+  fund_id: string | null;
+  initiative_id: string | null;
+  /** A path in Supabase Storage. Never a bank detail. */
+  receipt_path: string | null;
+  status: ExpenseClaimStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  paid_at: string | null;
+  created_at: string;
+};
+
+export type FundBalanceRow = {
+  fund_id: string;
+  key: string;
+  name: string;
+  kind: FundKind;
+  money_in: number;
+  money_out: number;
+  moved_in: number;
+  moved_out: number;
+  balance: number;
+};
+
+export type MonthlyFundRow = {
+  month: string;
+  fund_key: string;
+  fund_name: string;
+  money_in: number | null;
+  money_out: number | null;
+  net: number;
+  entries: number;
+};
+
+export type PledgeProgressRow = {
+  pledge_id: string;
+  profile_id: string;
+  monthly_amount: number;
+  months_paid: number;
+  months_missed: number;
+  months_partial: number;
+  collected: number;
+  last_month_recorded: string | null;
+};
+
+/** Counts, not names — see the view's comment in 0011. */
+export type DonorProgressRow = {
+  profile_id: string;
+  full_name: string | null;
+  target_count: number;
+  approached: number;
+  pledged: number;
+  received: number;
+  overdue_follow_ups: number;
+};
+
 type Table<Row, Ins = Partial<Row>, Upd = Partial<Row>> = {
   Row: Row;
   Insert: Ins;
@@ -870,6 +1069,17 @@ export type Database = {
       initiative_retrospectives: Table<InitiativeRetrospective, Pick<InitiativeRetrospective, "initiative_id"> & Partial<InitiativeRetrospective>>;
       initiative_ihsan_ratings: Table<InitiativeIhsanRating, Pick<InitiativeIhsanRating, "initiative_id" | "rater_id" | "dimension" | "score"> & Partial<InitiativeIhsanRating>>;
       audit_log: Table<AuditLogEntry, Pick<AuditLogEntry, "action"> & Partial<AuditLogEntry>>;
+
+      funds: Table<Fund, Pick<Fund, "key" | "name" | "kind"> & Partial<Fund>>;
+      finance_transactions: Table<FinanceTransaction, Pick<FinanceTransaction, "fund_id" | "direction" | "amount"> & Partial<FinanceTransaction>>;
+      fund_transfers: Table<FundTransfer, Pick<FundTransfer, "from_fund_id" | "to_fund_id" | "amount"> & Partial<FundTransfer>>;
+      pledges: Table<Pledge, Pick<Pledge, "profile_id" | "fund_id" | "amount"> & Partial<Pledge>>;
+      pledge_payments: Table<PledgePayment, Pick<PledgePayment, "pledge_id" | "month"> & Partial<PledgePayment>>;
+      donor_targets: Table<DonorTarget, Pick<DonorTarget, "profile_id"> & Partial<DonorTarget>>;
+      donors: Table<Donor, Pick<Donor, "owner_id" | "name"> & Partial<Donor>>;
+      business_donors: Table<BusinessDonor, Pick<BusinessDonor, "name"> & Partial<BusinessDonor>>;
+      campaigns: Table<Campaign, Pick<Campaign, "name" | "fund_id"> & Partial<Campaign>>;
+      expense_claims: Table<ExpenseClaim, Pick<ExpenseClaim, "claimant_id" | "amount" | "spent_on" | "description"> & Partial<ExpenseClaim>>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -880,6 +1090,10 @@ export type Database = {
       member_directory: { Row: MemberDirectoryRow; Relationships: [] };
       initiative_basics: { Row: InitiativeBasics; Relationships: [] };
       ihsan_scores_by_dimension: { Row: IhsanScoreRow; Relationships: [] };
+      fund_balances: { Row: FundBalanceRow; Relationships: [] };
+      finance_monthly_by_fund: { Row: MonthlyFundRow; Relationships: [] };
+      pledge_progress: { Row: PledgeProgressRow; Relationships: [] };
+      donor_progress: { Row: DonorProgressRow; Relationships: [] };
     };
     Functions: {
       has_permission: { Args: { p_key: string }; Returns: boolean };
@@ -896,6 +1110,7 @@ export type Database = {
       can_see_safeguarding: { Args: { p_id: string }; Returns: boolean };
       initiative_readiness: { Args: { p_id: string }; Returns: ReadinessIssue[] };
       apply_template_to_initiative: { Args: { p_id: string }; Returns: number };
+      can_see_pledge: { Args: { p_pledge_id: string }; Returns: boolean };
     };
     Enums: {};
     CompositeTypes: {};

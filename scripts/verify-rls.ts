@@ -519,6 +519,229 @@ async function verify() {
     await admin.from("meetings").delete().like("title", "rls probe%");
   }
 
+  console.log("\n— Finance: the zakat rule (0011) —");
+
+  {
+    // Run as the SERVICE ROLE on purpose. It bypasses every RLS policy,
+    // so if the rule still holds here it is genuinely in the database
+    // rather than in a policy somebody could be given an exemption from.
+    // This is the check the spec asks for by name.
+    const { data: zakat } = await admin.from("funds").select("id").eq("key", "zakat").single();
+    const { data: general } = await admin.from("funds").select("id").eq("key", "general").single();
+
+    await admin.from("funds").delete().eq("key", "zakat-probe");
+    const { data: zakat2 } = await admin
+      .from("funds")
+      .insert({ key: "zakat-probe", name: "Zakat probe", kind: "zakat", position: 99 })
+      .select("id")
+      .single();
+
+    if (zakat && general && zakat2) {
+      const { error: blocked } = await admin.from("fund_transfers").insert({
+        from_fund_id: zakat.id, to_fund_id: general.id, amount: 10,
+      });
+      check(
+        "zakat CANNOT be moved into general, even by the service role",
+        /zakat cannot be moved/i.test(blocked?.message ?? ""),
+        blocked ? blocked.message : "the write was accepted",
+      );
+
+      const { error: allowed } = await admin.from("fund_transfers").insert({
+        from_fund_id: zakat.id, to_fund_id: zakat2.id, amount: 10,
+      });
+      check("but zakat CAN be moved into another zakat fund", !allowed, allowed?.message);
+
+      // The way round the rule, closed: transfer zakat -> zakat, then
+      // relabel the destination as general.
+      const { error: relabel } = await admin
+        .from("funds")
+        .update({ kind: "general" })
+        .eq("id", zakat2.id);
+      check(
+        "a fund that has money against it cannot change what kind it is",
+        /cannot be changed/i.test(relabel?.message ?? ""),
+        relabel ? relabel.message : "the relabel was accepted",
+      );
+
+      await admin.from("fund_transfers").delete().eq("to_fund_id", zakat2.id);
+      await admin.from("funds").delete().eq("id", zakat2.id);
+    }
+
+    // No account numbers, anywhere.
+    if (general) {
+      const { error: cardNumber } = await admin.from("finance_transactions").insert({
+        fund_id: general.id, direction: "in", amount: 5,
+        description: "paid into 12345678901234567",
+      });
+      check(
+        "a description containing a long account number is refused",
+        (cardNumber?.code ?? "") === "23514",
+        cardNumber ? `${cardNumber.code}: ${cardNumber.message}` : "it was stored",
+      );
+
+      const { error: oneCounter } = await admin.from("finance_transactions").insert({
+        fund_id: general.id, direction: "in", amount: 5, source: "collection",
+        description: "rls probe collection",
+      });
+      check(
+        "a collection with fewer than two named counters is refused",
+        (oneCounter?.code ?? "") === "23514",
+        oneCounter ? `${oneCounter.code}: ${oneCounter.message}` : "it was stored",
+      );
+    }
+  }
+
+  console.log("\n— Finance: nobody approves their own claim (0011) —");
+
+  {
+    const { data: shuraProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.shura).single();
+    const { data: financeProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.financeHead).single();
+
+    if (shuraProfile && financeProfile) {
+      await admin.from("expense_claims").delete().like("description", "rls probe%");
+
+      const { data: own } = await admin
+        .from("expense_claims")
+        .insert({
+          claimant_id: shuraProfile.id, amount: 20, spent_on: "2026-09-01",
+          description: "rls probe own claim",
+        })
+        .select("id")
+        .single();
+
+      if (own) {
+        // As the claimant, through RLS.
+        const { error: selfApprove } = await shura
+          .from("expense_claims")
+          .update({ status: "approved", decided_by: shuraProfile.id, decided_at: new Date().toISOString() })
+          .eq("id", own.id);
+        check(
+          "a shura member cannot approve their own claim",
+          selfApprove != null,
+          selfApprove ? "" : "the approval went through",
+        );
+
+        // And as the service role, which proves the CHECK constraint is
+        // doing it rather than the policy.
+        const { error: godApprove } = await admin
+          .from("expense_claims")
+          .update({ status: "approved", decided_by: shuraProfile.id })
+          .eq("id", own.id);
+        check(
+          "not even the service role can — it is a CHECK constraint",
+          (godApprove?.code ?? "") === "23514",
+          godApprove ? `${godApprove.code}: ${godApprove.message}` : "the approval went through",
+        );
+
+        // Forging somebody else's approval, which the constraint alone
+        // would allow. The RLS policy's WITH CHECK is what stops it.
+        const { error: forged } = await shura
+          .from("expense_claims")
+          .update({ status: "approved", decided_by: financeProfile.id })
+          .eq("id", own.id);
+        check(
+          "nor can they record the approval in somebody else's name",
+          forged != null,
+          forged ? "" : "the forged approval went through",
+        );
+
+        // Somebody else approving it is fine.
+        const financeHead = await signIn(ACCOUNTS.financeHead);
+        const { error: proper } = await financeHead
+          .from("expense_claims")
+          .update({ status: "approved", decided_by: financeProfile.id, decided_at: new Date().toISOString() })
+          .eq("id", own.id);
+        check("but another shura member can approve it", !proper, proper?.message);
+
+        await admin.from("expense_claims").delete().like("description", "rls probe%");
+      }
+    }
+  }
+
+  console.log("\n— Finance: totals are not the same as individuals (0011) —");
+
+  {
+    const { data: muhsinProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.muhsin).single();
+    const { data: sabiqunProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.sabiqun).single();
+    const { data: general } = await admin.from("funds").select("id").eq("key", "general").single();
+
+    if (muhsinProfile && sabiqunProfile && general) {
+      await admin.from("pledges").delete().like("note", "rls probe%");
+      await admin.from("donors").delete().like("name", "rls probe%");
+
+      await admin.from("pledges").insert([
+        { profile_id: muhsinProfile.id, fund_id: general.id, amount: 10, note: "rls probe muhsin" },
+        { profile_id: sabiqunProfile.id, fund_id: general.id, amount: 20, note: "rls probe sabiqun" },
+      ]);
+      await admin.from("donors").insert([
+        { owner_id: muhsinProfile.id, name: "rls probe donor of muhsin" },
+        { owner_id: sabiqunProfile.id, name: "rls probe donor of sabiqun" },
+      ]);
+
+      // Give the sabiqun finance.view_totals for the length of this
+      // check. This is THE distinction the spec asks about: seeing the
+      // totals is not the same as seeing what each person gives.
+      await admin.from("profile_permissions").upsert(
+        { profile_id: sabiqunProfile.id, permission_key: "finance.view_totals", granted: true },
+        { onConflict: "profile_id,permission_key" },
+      );
+
+      const withTotals = await signIn(ACCOUNTS.sabiqun);
+      check("the sabiqun now has finance.view_totals", await can(withTotals, "finance.view_totals"));
+      check(
+        "and does NOT have finance.view_individual",
+        !(await can(withTotals, "finance.view_individual")),
+      );
+
+      const { data: theirPledges } = await withTotals.from("pledges").select("id, profile_id");
+      check(
+        "a sabiqun with finance.view_totals sees only their OWN pledge",
+        (theirPledges ?? []).every((p) => p.profile_id === sabiqunProfile.id),
+        `saw ${theirPledges?.length ?? 0} rows`,
+      );
+
+      const { data: theirDonors } = await withTotals.from("donors").select("id, owner_id");
+      check(
+        "and only their own donor list",
+        (theirDonors ?? []).every((d) => d.owner_id === sabiqunProfile.id),
+        `saw ${theirDonors?.length ?? 0} rows`,
+      );
+
+      const { data: balances } = await withTotals.from("fund_balances").select("fund_id");
+      check("but can see the fund balances", (balances?.length ?? 0) > 0);
+
+      await admin
+        .from("profile_permissions")
+        .delete()
+        .eq("profile_id", sabiqunProfile.id)
+        .eq("permission_key", "finance.view_totals");
+
+      const { data: muhsinPledges } = await muhsin.from("pledges").select("id, profile_id");
+      check(
+        "a muhsin sees only their own pledge",
+        (muhsinPledges ?? []).length === 1 && muhsinPledges![0].profile_id === muhsinProfile.id,
+        `saw ${muhsinPledges?.length ?? 0} rows`,
+      );
+
+      const { data: muhsinDonors } = await muhsin.from("donors").select("id, owner_id");
+      check(
+        "and only their own donor list",
+        (muhsinDonors ?? []).every((d) => d.owner_id === muhsinProfile.id),
+        `saw ${muhsinDonors?.length ?? 0} rows`,
+      );
+
+      const { data: shuraPledges } = await shura.from("pledges").select("id");
+      check("a shura member sees everyone's", (shuraPledges?.length ?? 0) >= 2);
+
+      await admin.from("pledges").delete().like("note", "rls probe%");
+      await admin.from("donors").delete().like("name", "rls probe%");
+    }
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

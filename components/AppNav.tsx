@@ -46,7 +46,10 @@ const LINKS: NavLink[] = [
   { href: "/app/meetings", label: "Meetings", icon: "week", needs: "meetings.manage" },
   { href: "/app/events", label: "Events", icon: "work" },
   { href: "/app/sops", label: "SOPs", icon: "tools" },
-  { href: "/app/finance", label: "Finance", icon: "finance", needs: "finance.view_totals" },
+  // No `needs`. Everyone has to be able to reach it to claim expenses
+  // back — the page itself shows totals only to those permitted, and
+  // hiding the whole section meant a muhsin could not submit a receipt.
+  { href: "/app/finance", label: "Finance", icon: "finance" },
   { href: "/app/strategy", label: "Strategy", icon: "leads", needs: "yearplan.view" },
   { href: "/app/media", label: "Media", icon: "uploads", needs: "media.edit" },
   { href: "/app/messages", label: "Messages", icon: "messages" },

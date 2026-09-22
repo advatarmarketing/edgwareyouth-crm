@@ -8,11 +8,11 @@ The Edgware Youth CRM, built from the Advatar CRM as a template, following
 `docs/SPEC.md`. That spec is the source of truth. Work through its Part C
 prompts one at a time, in order.
 
-**Next action: run migrations 0008, 0009 and 0010 in the Supabase SQL editor**,
-then `npm run verify:rls`. After that, Prompt 6 (Finance).
+**Next action: run migrations 0008 through 0012 in the Supabase SQL editor**,
+then `npm run verify:rls`. After that, Prompt 7 (Strategy).
 
-Prompts 0 through 5 are built. Migrations 0001-0007 are applied and verified;
-0008-0010 are written and parse-checked but NOT yet applied. `npm run verify:rls`
+Prompts 0 through 6 are built. Migrations 0001-0007 are applied and verified;
+0008-0012 are written and parse-checked but NOT yet applied. `npm run verify:rls`
 is the thing to run after any migration — it tests the whole access matrix and
 says plainly if a policy is wrong.
 
@@ -358,3 +358,75 @@ accident.**
   the system and deserves its own screen with a DPIA behind it.
 - The event message channel (Prompt 8) is not created on approval; nothing exists
   to create it into yet.
+
+
+## Done in Prompt 6 — finance
+
+The CRM records money. It does not take payments, and there is no column
+anywhere for a bank or card number.
+
+### Two rules that live in the database, not in the app
+
+**Zakat cannot be moved into another fund.** A trigger on `fund_transfers`
+(`enforce_zakat_separation`), because the rule spans two rows in `funds`.
+Zakat -> zakat is allowed; anything else out of a zakat fund raises. It is in
+the database because it is a rule about money held in trust: a migration
+script, a fix applied in the Supabase dashboard at midnight, or next year's
+rewritten app would all walk past app-layer logic without anybody noticing.
+
+The obvious way round it is closed too — `enforce_fund_kind_is_permanent`
+refuses to relabel a fund that already has money against it, so you cannot
+transfer zakat -> zakat and then call the destination 'general'.
+
+**Nobody approves their own expense claim.** A CHECK constraint
+(`nobody_decides_their_own_claim`), not a trigger, because both columns are on
+the same row — which makes it the strongest form available.
+
+The constraint alone is not enough, though: it stops you naming *yourself* as
+the decider, not naming somebody else. The RLS policy's WITH CHECK requires
+`decided_by = auth.uid()`, so an approval cannot be recorded in another
+person's name either. Two rules, each covering what the other cannot. Both are
+tested.
+
+### Verified how
+
+`npm run verify:rls` gained three sections. The zakat and self-approval checks
+run as the **service role**, which bypasses every RLS policy — if the rule
+still holds there, it is genuinely in the database. That is deliberate: the
+0007 lesson was that testing reads as users and writes as god hides things,
+and this is the inverse of that mistake, used on purpose.
+
+### Design notes
+
+- **Totals and individuals are different permissions.** `finance.view_totals`
+  gets you the fund balances; `finance.view_individual` is what it takes to see
+  what each person pledges. A sabiqun granted the first still sees only their
+  own pledge, and there is a check for exactly that.
+- **A donor list is private to its owner and the shura.** Everyone with finance
+  permissions sees `donor_progress` — counts, not names. A list of people you
+  might ask for money is not one anybody writes honestly if the whole
+  organisation can read it.
+- **A missed month is a row**, not an absent one. "We never wrote it down" and
+  "they did not pay" are different facts.
+- **A collection needs two different named counters**, enforced by a CHECK.
+- **`looks_like_an_account_number()`** refuses any description or note with 13+
+  consecutive digits. The realistic failure is somebody pasting their sort code
+  and account number in so a treasurer can pay them back.
+- **Receipts go in a PRIVATE storage bucket**, path `receipts/<user id>/<uuid>`.
+  The first path segment being the owner's id is what the policies key off, so
+  uploads must keep that layout. Deletes are not permitted — a claim's evidence
+  should not be able to vanish after approval.
+- **The CSV export defuses formula injection** (a cell starting `=` `+` `-` `@`
+  gets a leading apostrophe) and is sent `no-store`.
+- **The Finance nav item lost its `needs`.** Hiding the section behind
+  `finance.view_totals` meant a muhsin could not reach the page to submit a
+  receipt. The page shows totals only to those permitted.
+
+### Still to do on this module
+
+- Campaign `raised` is typed in by hand and nothing warns when it goes stale.
+- No UI yet for creating pledges, setting donor targets, business donors or
+  campaigns — the tables and policies exist, the forms do not.
+- Event funds (`funds.initiative_id`) are modelled but nothing creates one when
+  an event is approved.
+- Receipts are uploaded but not yet displayed; that needs a signed-URL route.
