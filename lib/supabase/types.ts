@@ -1,30 +1,35 @@
 /**
  * Hand-written to mirror supabase/migrations/.
  *
- * This is NOT the output of `supabase gen types typescript`. Once the
- * migrations have been run against the real Edgware Supabase project,
- * replace this file with the generated version:
+ * NOT the output of `supabase gen types typescript`. Replace this file
+ * with the generated version as soon as the Supabase project exists:
  *
  *   npx supabase login
  *   npx supabase gen types typescript --project-id <ref> --schema public > lib/supabase/types.ts
  *
- * Do that as soon as Prompt 1 lands. Hand-maintained types drift the
- * moment the schema changes and won't tell you they have.
+ * Hand-maintained types drift the moment the schema changes and won't
+ * tell you they have.
+ *
+ * Everything below is a `type`, never an `interface`. supabase-js
+ * requires each Row to satisfy `Record<string, unknown>`; an interface
+ * has no implicit index signature, fails that constraint, and every
+ * table silently resolves to `never` — reported at the call site as
+ * "property does not exist on type never", which points nowhere near
+ * here. Don't convert these back.
  */
 
 /**
  * A person's tier. See spec section 2.
  *
- * Null is not an absence of data — it means "Ansar only": someone who
- * carries the Ansar badge without sitting at any tier. Every piece of
- * code that narrows on tier has to handle null as a real case, which
- * is why this is modelled as `Tier | null` everywhere rather than a
- * string with an "none" member that would quietly pass a truthiness
- * check.
+ * Null is not missing data — it means "Ansar only": someone carrying
+ * the Ansar badge without sitting at any tier. Every narrowing on tier
+ * has to handle null as a real case.
  */
 export type Tier = "shura" | "sabiqun" | "muhsinun";
 
-/** Named posts. Prompt 1 makes this a table; this union is the seed. */
+/** What tier defaults are keyed by. `ansar` is the badge, not a tier. */
+export type TierKey = Tier | "ansar";
+
 export type Position =
   | "lead"
   | "vice_lead"
@@ -32,56 +37,149 @@ export type Position =
   | "head_of_media"
   | "event_lead";
 
-/** Teams. Dawah/Outreach and Tarbiyah exist but ship switched off. */
-export type Team = "media" | "finance" | "events" | "dawah" | "tarbiyah";
+export type TeamKey = "media" | "finance" | "events" | "dawah" | "tarbiyah";
 
-// A type alias, deliberately, not an `interface`.
-//
-// supabase-js requires every Row to satisfy `Record<string, unknown>`.
-// An interface does not get an implicit index signature, so it fails
-// that constraint, the schema stops matching GenericSchema, and every
-// table resolves to `never` — reported as "property does not exist on
-// type never" at the call site, which points nowhere near here.
+export type DbsStatus = "none" | "applied" | "valid";
+
+/**
+ * Every permission key in the system. Kept as a union so a typo in a
+ * has_permission("finance.aprove") call fails to compile rather than
+ * silently returning false — which would read as "correctly denied".
+ */
+export type PermissionKey =
+  | "members.view_directory"
+  | "members.view_contact"
+  | "members.manage"
+  | "members.view_notes"
+  | "permissions.manage"
+  | "audit.view"
+  | "tasks.assign"
+  | "sops.manage"
+  | "calendar.view_all"
+  | "meetings.manage"
+  | "meetings.view_shura"
+  | "events.propose"
+  | "events.approve"
+  | "events.view_all"
+  | "risk.manage"
+  | "finance.view_totals"
+  | "finance.view_individual"
+  | "finance.log"
+  | "finance.approve"
+  | "strategy.edit"
+  | "yearplan.view"
+  | "okr.manage"
+  | "okr.update_own"
+  | "kpi.view"
+  | "announcements.post"
+  | "media.manage"
+  | "media.edit"
+  | "development.view_all"
+  | "resources.upload";
+
 export type Profile = {
   id: string;
   full_name: string | null;
+  nickname: string | null;
+  email: string | null;
+  phone: string | null;
   avatar_url: string | null;
   tier: Tier | null;
   is_ansar: boolean;
+  position: Position | null;
+  skills: string[];
+  availability: string | null;
+  dbs_status: DbsStatus | null;
+  dbs_expiry: string | null;
+  first_aid_trained: boolean;
+  first_aid_expiry: string | null;
+  date_joined: string | null;
+  last_engaged_at: string | null;
   is_active: boolean;
   created_at: string;
-}
+};
+
+export type Team = {
+  key: TeamKey;
+  name: string;
+  is_active: boolean;
+  position: number;
+};
+
+export type TeamMember = { profile_id: string; team_key: TeamKey };
+
+export type Permission = {
+  key: PermissionKey;
+  label: string;
+  category: string;
+  description: string | null;
+};
+
+export type TierPermission = { tier_key: TierKey; permission_key: PermissionKey };
+
+export type ProfilePermission = {
+  profile_id: string;
+  permission_key: PermissionKey;
+  granted: boolean;
+  set_by: string | null;
+  set_at: string;
+};
+
+export type MemberNote = {
+  id: string;
+  profile_id: string;
+  body: string;
+  author_id: string | null;
+  created_at: string;
+};
+
+/**
+ * The directory, with contact and safeguarding columns masked to null
+ * for anyone without the permission to see them. See the view's own
+ * comment in 0002 for why the masking is there and not in a policy.
+ */
+export type MemberDirectoryRow = Omit<Profile, "created_at">;
+
+type Table<Row, Ins = Partial<Row>, Upd = Partial<Row>> = {
+  Row: Row;
+  Insert: Ins;
+  Update: Upd;
+  Relationships: [];
+};
 
 export type Database = {
-  // supabase-js 2.116 reads its PostgREST feature level from here and
-  // strips this key before resolving schemas. Generated types include
-  // it; hand-written ones need it too.
   __InternalSupabase: { PostgrestVersion: "12" };
 
   public: {
     Tables: {
-      profiles: {
-        Row: Profile;
-        Insert: Partial<Profile> & { id: string };
-        Update: Partial<Profile>;
-        // supabase-js checks for this key when it matches a table
-        // against its GenericTable shape. Without it the whole table
-        // resolves to `never` and every query on it fails to compile
-        // with a message that does not mention relationships at all.
-        Relationships: [];
-      };
+      profiles: Table<Profile, Partial<Profile> & { id: string }>;
+      teams: Table<Team>;
+      team_members: Table<TeamMember, TeamMember>;
+      permissions: Table<Permission>;
+      tier_permissions: Table<TierPermission, TierPermission>;
+      profile_permissions: Table<
+        ProfilePermission,
+        Pick<ProfilePermission, "profile_id" | "permission_key" | "granted"> &
+          Partial<ProfilePermission>
+      >;
+      member_notes: Table<MemberNote, Pick<MemberNote, "profile_id" | "body"> & Partial<MemberNote>>;
     };
-    // These are `{}` and NOT `Record<string, never>`.
-    //
-    // supabase-js resolves a table name against `Tables & Views`. A
-    // `Record<string, never>` carries an index signature over every
-    // string key, so that intersection turns every table into
-    // `profiles & never` — i.e. `never` — and every query on it fails
-    // to compile with an error that points at the column, never at
-    // this line. `{}` has no keys, so the intersection is a no-op.
-    Views: {};
-    Functions: {};
+
+    // `{}`, not `Record<string, never>`. supabase-js resolves a table
+    // name against `Tables & Views`, and a Record's index signature
+    // covers every key — so the intersection turns each table into
+    // `profiles & never`, i.e. `never`.
+    Views: {
+      member_directory: { Row: MemberDirectoryRow; Relationships: [] };
+    };
+    Functions: {
+      has_permission: { Args: { p_key: string }; Returns: boolean };
+      is_shura: { Args: Record<string, never>; Returns: boolean };
+      current_tier: { Args: Record<string, never>; Returns: string | null };
+      is_active_member: { Args: Record<string, never>; Returns: boolean };
+      my_permissions: { Args: Record<string, never>; Returns: string[] };
+    };
     Enums: {};
     CompositeTypes: {};
   };
-}
+};

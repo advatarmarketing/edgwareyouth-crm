@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import type { Tier } from "@/lib/supabase/types";
+import type { PermissionKey } from "@/lib/supabase/types";
 import { signOutAction } from "@/app/app/actions";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -14,62 +14,53 @@ interface NavLink {
   href: string;
   label: string;
   icon: NavIconName;
+  /**
+   * The permission this link needs. Undefined means everybody gets it
+   * — a member's own tasks, their own calendar, the resources they
+   * have been given.
+   */
+  needs?: PermissionKey;
 }
 
 /**
- * What the nav shows, per tier.
+ * What the nav shows.
  *
- * This is presentation, not enforcement. It exists so somebody never
- * sees a menu item that would bounce them — a link that always fails
- * is bad UX, not a control. RLS and has_permission() are what actually
- * stop a muhsin reading the finance module.
+ * Driven by permission keys, not by tier, so that the shura granting
+ * one sabiqun finance.view_totals makes Finance appear in that
+ * person's nav and nobody else's — without this list knowing anything
+ * about tiers at all.
  *
- * Prompt 1 replaces the tier switch below with the real permission
- * keys, so that the shura turning finance.view_totals on for one
- * sabiqun makes Finance appear in that person's nav and nobody else's.
- * Until then this is the section 3 default, and only the default.
+ * This is presentation. It exists so nobody sees a menu item that
+ * would bounce them. RLS is what actually stops the data coming back.
  *
- * The icons are the template's and several are stand-ins — NavIcon's
+ * The icons are the template's and several are stand-ins; NavIcon's
  * set was drawn for a marketing agency. Worth redrawing once the
- * modules are real; not worth blocking on now.
+ * modules are real.
  */
-const EVERYONE: NavLink[] = [
+const LINKS: NavLink[] = [
   { href: "/app/dashboard", label: "Dashboard", icon: "dashboard" },
+  { href: "/app/members", label: "Members", icon: "clients", needs: "members.view_directory" },
   { href: "/app/tasks", label: "Tasks", icon: "todo" },
   { href: "/app/calendar", label: "Calendar", icon: "calendar" },
+  { href: "/app/meetings", label: "Meetings", icon: "week", needs: "meetings.manage" },
   { href: "/app/events", label: "Events", icon: "work" },
   { href: "/app/sops", label: "SOPs", icon: "tools" },
+  { href: "/app/finance", label: "Finance", icon: "finance", needs: "finance.view_totals" },
+  { href: "/app/strategy", label: "Strategy", icon: "leads", needs: "yearplan.view" },
+  { href: "/app/media", label: "Media", icon: "uploads", needs: "media.edit" },
   { href: "/app/messages", label: "Messages", icon: "messages" },
   { href: "/app/resources", label: "Resources", icon: "portal" },
+  { href: "/app/development", label: "Development", icon: "portfolio" },
+  { href: "/app/admin", label: "Admin", icon: "logins", needs: "members.manage" },
 ];
 
-const MEMBERS: NavLink = { href: "/app/members", label: "Members", icon: "clients" };
-const MEETINGS: NavLink = { href: "/app/meetings", label: "Meetings", icon: "week" };
-const STRATEGY: NavLink = { href: "/app/strategy", label: "Strategy", icon: "leads" };
-const MEDIA: NavLink = { href: "/app/media", label: "Media", icon: "uploads" };
-const FINANCE: NavLink = { href: "/app/finance", label: "Finance", icon: "finance" };
-const ADMIN: NavLink = { href: "/app/admin", label: "Admin", icon: "logins" };
-const DEVELOPMENT: NavLink = { href: "/app/development", label: "Development", icon: "portfolio" };
-
-function linksFor(tier: Tier | null): NavLink[] {
-  // Null tier is "Ansar only" — a real person with the badge and no
-  // tier, not a missing value. They get the base nav.
-  switch (tier) {
-    case "shura":
-      return [MEMBERS, ...EVERYONE, MEETINGS, FINANCE, STRATEGY, MEDIA, ADMIN];
-    case "sabiqun":
-      return [MEMBERS, ...EVERYONE, MEETINGS, STRATEGY, MEDIA];
-    default:
-      return [MEMBERS, ...EVERYONE, DEVELOPMENT];
-  }
-}
-
-export function AppNav({ tier }: { tier: Tier | null }) {
+export function AppNav({ permissions }: { permissions: PermissionKey[] }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const tabStrip = useRef<HTMLDivElement>(null);
 
-  const links = linksFor(tier);
+  const granted = new Set(permissions);
+  const links = LINKS.filter((link) => !link.needs || granted.has(link.needs));
 
   useEffect(() => {
     setMenuOpen(false);
