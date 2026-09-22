@@ -1087,6 +1087,127 @@ async function verify() {
     }
   }
 
+  console.log("\n— Media, development and resources (0017, 0019) —");
+
+  {
+    const { data: muhsinProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.muhsin).single();
+
+    // The org-wide media plan is for people with a media permission.
+    await admin.from("media_goals").delete().like("title", "rls probe%");
+    await admin.from("media_goals").insert({ title: "rls probe media goal" });
+
+    const { data: muhsinGoals } = await muhsin.from("media_goals").select("id");
+    check("a muhsin cannot see the org media goals", (muhsinGoals?.length ?? 0) === 0,
+      `they saw ${muhsinGoals?.length ?? 0}`);
+
+    const { data: sabiqunGoals } = await sabiqun.from("media_goals").select("id");
+    check("a sabiqun with media.edit can", (sabiqunGoals?.length ?? 0) >= 1);
+
+    // Brand guidance stays open to everybody — the deviation stated in
+    // 0019. Checked so that changing it later fails loudly here.
+    const { data: muhsinGuides } = await muhsin.from("media_guidelines").select("id");
+    check("but the brand guidelines are open to all staff, by design",
+      (muhsinGuides?.length ?? 0) >= 1);
+
+    await admin.from("media_goals").delete().like("title", "rls probe%");
+
+    // Resources: per-folder visibility.
+    const { data: policies } = await admin
+      .from("resource_folders").select("id").eq("name", "Policies").maybeSingle();
+    const { data: briefs } = await admin
+      .from("resource_folders").select("id").eq("name", "Speaker briefs").maybeSingle();
+
+    if (policies && briefs) {
+      const { data: muhsinFolders } = await muhsin.from("resource_folders").select("id, name");
+      check("a muhsin sees the folders shared with everyone",
+        (muhsinFolders ?? []).some((f) => f.id === policies.id));
+      check("and not the ones that are not",
+        !(muhsinFolders ?? []).some((f) => f.id === briefs.id),
+        `they saw: ${(muhsinFolders ?? []).map((f) => f.name).join(", ")}`);
+
+      const { data: sabiqunFolders } = await sabiqun.from("resource_folders").select("id");
+      check("a sabiqun sees the speaker briefs",
+        (sabiqunFolders ?? []).some((f) => f.id === briefs.id));
+    }
+
+    // The dawah list is switched off with the team, in RLS rather than
+    // in the UI. Its own owner cannot read it either.
+    if (muhsinProfile) {
+      await admin.from("dawah_targets").delete().like("name", "rls probe%");
+      await admin.from("dawah_targets").insert({
+        owner_id: muhsinProfile.id, name: "rls probe dawah contact",
+      });
+
+      const { data: live } = await admin.from("teams").select("is_active").eq("key", "dawah").single();
+      check("the dawah team is still switched off", live?.is_active === false);
+
+      const { data: ownerSees } = await muhsin.from("dawah_targets").select("id");
+      check("so even the list's own owner cannot read it",
+        (ownerSees?.length ?? 0) === 0, `they saw ${ownerSees?.length ?? 0}`);
+
+      const { data: shuraSees } = await shura.from("dawah_targets").select("id");
+      check("and neither can the shura", (shuraSees?.length ?? 0) === 0);
+
+      // Switch it on, prove it appears, switch it back.
+      await admin.from("teams").update({ is_active: true }).eq("key", "dawah");
+      const nowLive = await signIn(ACCOUNTS.muhsin);
+      const { data: afterSwitch } = await nowLive.from("dawah_targets").select("id");
+      check("switching the team on makes it readable by its owner",
+        (afterSwitch?.length ?? 0) === 1, `they saw ${afterSwitch?.length ?? 0}`);
+
+      await admin.from("teams").update({ is_active: false }).eq("key", "dawah");
+      await admin.from("dawah_targets").delete().like("name", "rls probe%");
+    }
+
+    // Development progress: your own, and the shura's overview.
+    const { data: firstMilestone } = await admin
+      .from("development_milestones").select("id").eq("key", "course").single();
+
+    if (firstMilestone && muhsinProfile) {
+      await admin.from("development_progress").upsert(
+        { profile_id: muhsinProfile.id, milestone_id: firstMilestone.id, count_so_far: 1 },
+        { onConflict: "profile_id,milestone_id" },
+      );
+
+      const { data: theirs } = await muhsin.from("development_progress").select("profile_id");
+      check("a muhsin sees their own development progress",
+        (theirs ?? []).length >= 1 && (theirs ?? []).every((d) => d.profile_id === muhsinProfile.id));
+
+      // A sabiqun has no development.view_all, so the muhsin's row must
+      // not be in what they get back — regardless of their own rows.
+      const { data: sabiqunSees } = await sabiqun
+        .from("development_progress").select("profile_id");
+      check(
+        "a sabiqun does not see anybody else's",
+        !(sabiqunSees ?? []).some((d) => d.profile_id === muhsinProfile.id),
+        `they saw ${sabiqunSees?.length ?? 0} rows`,
+      );
+
+      const { data: shuraSeesAll } = await shura
+        .from("development_progress").select("profile_id");
+      check(
+        "but the shura do — that is what makes the step-up list possible",
+        (shuraSeesAll ?? []).some((d) => d.profile_id === muhsinProfile.id),
+      );
+
+      // A shura tick must survive the recounter — the same rule as the
+      // KPIs, and worth proving rather than trusting by eye.
+      await admin.from("development_progress").upsert(
+        { profile_id: muhsinProfile.id, milestone_id: firstMilestone.id, marked_done: true },
+        { onConflict: "profile_id,milestone_id" },
+      );
+      await admin.rpc("refresh_development_progress");
+      const { data: afterRecount } = await admin
+        .from("development_progress").select("marked_done")
+        .eq("profile_id", muhsinProfile.id).eq("milestone_id", firstMilestone.id).single();
+      check("a shura tick survives a recount", afterRecount?.marked_done === true);
+
+      await admin.from("development_progress")
+        .delete().eq("profile_id", muhsinProfile.id).eq("milestone_id", firstMilestone.id);
+    }
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

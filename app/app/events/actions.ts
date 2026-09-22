@@ -230,6 +230,13 @@ export async function approveInitiative(_prev: ActionState, formData: FormData):
     .rpc("apply_template_to_initiative", { p_id: id });
   if (rpcError) return { error: `Approved, but the plan did not build: ${rpcError.message}`, ok: null };
 
+  // The media plan, dated backwards from the event like the milestones
+  // (spec 4.11). A failure here is worth reporting but must not undo
+  // the approval — the event is approved either way, and a missing
+  // poster task is recoverable in a way an un-approved event is not.
+  const { error: mediaError } = await supabase
+    .rpc("build_initiative_media_plan", { p_id: id });
+
   const { data: initiative } = await supabase
     .from("initiatives").select("title, lead_id").eq("id", id).maybeSingle();
   if (initiative?.lead_id) {
@@ -243,7 +250,12 @@ export async function approveInitiative(_prev: ActionState, formData: FormData):
 
   revalidatePath(`/app/events/${id}`);
   revalidatePath("/app/tasks");
-  return { error: null, ok: `Approved. ${made ?? 0} milestones created.` };
+  return {
+    error: null,
+    ok: `Approved. ${made ?? 0} milestones created.${
+      mediaError ? " The media plan did not build — add it by hand." : ""
+    }`,
+  };
 }
 
 export async function returnForChanges(_prev: ActionState, formData: FormData): Promise<ActionState> {

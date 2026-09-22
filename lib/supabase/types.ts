@@ -1187,6 +1187,172 @@ export type AnnouncementReadStatusRow = {
   read_at: string | null;
 };
 
+// ---------------------------------------------------------------
+// Media planning, development pathway, resources (0017)
+// ---------------------------------------------------------------
+
+export type MediaGoal = {
+  id: string;
+  title: string;
+  metric: string | null;
+  target: number | null;
+  current_value: number;
+  key_result_id: string | null;
+  year: number;
+  quarter: number | null;
+  owner_id: string | null;
+  position: number;
+};
+
+export type MediaPlatform = {
+  id: string;
+  platform: string;
+  purpose: string | null;
+  audience: string | null;
+  frequency: string | null;
+  what_works: string | null;
+  is_active: boolean;
+  position: number;
+};
+
+export type ContentPillar = {
+  id: string;
+  name: string;
+  description: string | null;
+  position: number;
+};
+
+export type ContentCalendarItem = {
+  id: string;
+  planned_for: string;
+  platform: string | null;
+  pillar_id: string | null;
+  title: string;
+  notes: string | null;
+  owner_id: string | null;
+  initiative_id: string | null;
+  status: "idea" | "planned" | "posted" | "dropped";
+  posted_at: string | null;
+  created_at: string;
+};
+
+export type InitiativeShot = {
+  id: string;
+  initiative_id: string;
+  shot: string;
+  owner_id: string | null;
+  captured: boolean;
+  position: number;
+};
+
+export type MediaGuideline = {
+  id: string;
+  section: string;
+  body: string;
+  position: number;
+};
+
+/** Typed in. Nothing here talks to the platforms. */
+export type MediaReview = {
+  id: string;
+  month: string;
+  followers: number | null;
+  reach: number | null;
+  posts: number | null;
+  engagement: number | null;
+  what_worked: string | null;
+  what_did_not: string | null;
+  recorded_by: string | null;
+  recorded_at: string;
+};
+
+export type TemplateMediaItem = {
+  id: string;
+  template_id: string;
+  channel: string;
+  asset: string;
+  offset_days: number;
+  role_key: string | null;
+  position: number;
+};
+
+export type DevelopmentAutoSource =
+  | "events_volunteered"
+  | "responsibilities_held"
+  | "tasks_completed"
+  | "meetings_attended"
+  | "sops_read";
+
+export type DevelopmentMilestone = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  /** Null means somebody ticks it by hand. */
+  auto_source: DevelopmentAutoSource | null;
+  target_count: number;
+  is_active: boolean;
+  position: number;
+};
+
+export type DevelopmentProgress = {
+  profile_id: string;
+  milestone_id: string;
+  count_so_far: number;
+  /** A shura tick. Never overwritten by the counter. */
+  marked_done: boolean;
+  marked_by: string | null;
+  note: string | null;
+  updated_at: string;
+};
+
+/** A suggestion, not a promotion. The decision stays with people. */
+export type ReadyToStepUpRow = {
+  profile_id: string;
+  full_name: string | null;
+  met: number;
+  total: number;
+};
+
+export type DawahTarget = {
+  id: string;
+  owner_id: string;
+  name: string;
+  contact: string | null;
+  stage: "not_started" | "spoken" | "invited" | "came" | "regular";
+  next_step: string | null;
+  next_step_on: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type ResourceFolder = {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Explicit, not "no visibility rows means everyone". See 0005. */
+  visible_to_all: boolean;
+  position: number;
+  created_at: string;
+};
+
+export type ResourceFolderTier = { folder_id: string; tier_key: TierKey };
+export type ResourceFolderTeam = { folder_id: string; team_key: TeamKey };
+
+export type Resource = {
+  id: string;
+  folder_id: string;
+  title: string;
+  description: string | null;
+  path: string | null;
+  filename: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  url: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+};
+
 type Table<Row, Ins = Partial<Row>, Upd = Partial<Row>> = {
   Row: Row;
   Insert: Ins;
@@ -1288,6 +1454,22 @@ export type Database = {
       message_reads: Table<MessageRead, Pick<MessageRead, "message_id" | "profile_id"> & Partial<MessageRead>>;
       message_mentions: Table<MessageMention, MessageMention>;
       message_attachments: Table<MessageAttachment, Pick<MessageAttachment, "message_id" | "path" | "filename"> & Partial<MessageAttachment>>;
+
+      media_goals: Table<MediaGoal, Pick<MediaGoal, "title"> & Partial<MediaGoal>>;
+      media_platforms: Table<MediaPlatform, Pick<MediaPlatform, "platform"> & Partial<MediaPlatform>>;
+      content_pillars: Table<ContentPillar, Pick<ContentPillar, "name"> & Partial<ContentPillar>>;
+      content_calendar: Table<ContentCalendarItem, Pick<ContentCalendarItem, "planned_for" | "title"> & Partial<ContentCalendarItem>>;
+      initiative_shot_list: Table<InitiativeShot, Pick<InitiativeShot, "initiative_id" | "shot"> & Partial<InitiativeShot>>;
+      media_guidelines: Table<MediaGuideline, Pick<MediaGuideline, "section"> & Partial<MediaGuideline>>;
+      media_reviews: Table<MediaReview, Pick<MediaReview, "month"> & Partial<MediaReview>>;
+      template_media_items: Table<TemplateMediaItem, Pick<TemplateMediaItem, "template_id" | "channel" | "asset"> & Partial<TemplateMediaItem>>;
+      development_milestones: Table<DevelopmentMilestone, Pick<DevelopmentMilestone, "key" | "name"> & Partial<DevelopmentMilestone>>;
+      development_progress: Table<DevelopmentProgress, Pick<DevelopmentProgress, "profile_id" | "milestone_id"> & Partial<DevelopmentProgress>>;
+      dawah_targets: Table<DawahTarget, Pick<DawahTarget, "owner_id" | "name"> & Partial<DawahTarget>>;
+      resource_folders: Table<ResourceFolder, Pick<ResourceFolder, "name"> & Partial<ResourceFolder>>;
+      resource_folder_tiers: Table<ResourceFolderTier, ResourceFolderTier>;
+      resource_folder_teams: Table<ResourceFolderTeam, ResourceFolderTeam>;
+      resources: Table<Resource, Pick<Resource, "folder_id" | "title"> & Partial<Resource>>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -1305,6 +1487,7 @@ export type Database = {
       key_result_progress: { Row: KeyResultProgress; Relationships: [] };
       channel_unread: { Row: ChannelUnreadRow; Relationships: [] };
       announcement_read_status: { Row: AnnouncementReadStatusRow; Relationships: [] };
+      ready_to_step_up: { Row: ReadyToStepUpRow; Relationships: [] };
     };
     Functions: {
       has_permission: { Args: { p_key: string }; Returns: boolean };
@@ -1325,6 +1508,13 @@ export type Database = {
       refresh_auto_kpis: { Args: { p_period?: string }; Returns: number };
       can_see_channel: { Args: { p_channel_id: string }; Returns: boolean };
       can_post_in_channel: { Args: { p_channel_id: string }; Returns: boolean };
+      message_channel_id: { Args: { p_message_id: string }; Returns: string | null };
+      message_author_id: { Args: { p_message_id: string }; Returns: string | null };
+      message_is_aimed_at_me: { Args: { p_message_id: string }; Returns: boolean };
+      can_see_folder: { Args: { p_folder_id: string }; Returns: boolean };
+      dawah_is_live: { Args: Record<string, never>; Returns: boolean };
+      refresh_development_progress: { Args: Record<string, never>; Returns: number };
+      build_initiative_media_plan: { Args: { p_id: string }; Returns: number };
     };
     Enums: {};
     CompositeTypes: {};

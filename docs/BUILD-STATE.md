@@ -8,12 +8,12 @@ The Edgware Youth CRM, built from the Advatar CRM as a template, following
 `docs/SPEC.md`. That spec is the source of truth. Work through its Part C
 prompts one at a time, in order.
 
-**Next action: run migrations 0008 through 0015 in the Supabase SQL editor**,
-then `npm run verify:rls`. After that, Prompt 9 (media, development pathway,
-resources, dashboards).
+**Next action: run migrations 0016 through 0019 in the Supabase SQL editor**,
+then `npm run verify:rls`. After that, Prompt 10 (security audit and go-live).
 
-Prompts 0 through 8 are built. Migrations 0001-0007 are applied and verified;
-0008-0015 are written and parse-checked but NOT yet applied. `npm run verify:rls`
+Prompts 0 through 9 are built. Migrations 0001-0015 are applied; 0016-0019 are
+written and parse-checked but NOT yet applied. 0016 matters most — without it
+every read of `messages` fails with a recursion error. `npm run verify:rls`
 is the thing to run after any migration — it tests the whole access matrix and
 says plainly if a policy is wrong.
 
@@ -568,3 +568,80 @@ notification about a page they cannot open.
 - The attachments storage policy grants read to any active member rather than
   only to people who can see the message, because the object path carries no
   channel. Stated in `0015` rather than left implied.
+
+
+## Done in Prompt 9 — media, development, resources, dashboards
+
+Migrations `0017` (media + development + resources), `0018` (resources bucket),
+`0019` (a visibility fix to 0017).
+
+### Media: planning only
+
+No editing queue, no approval workflow, no asset review — the spec is explicit
+and the template's video-review feature was deleted in Prompt 0 for the same
+reason. What this holds is what, where, when and who.
+
+Event media plans are **dated backwards from the event date** by
+`build_initiative_media_plan()`, called on approval alongside the milestones.
+A failure there reports but does not undo the approval: a missing poster task
+is recoverable in a way an un-approved event is not.
+
+The monthly review writes the follower count straight into `kpi_values` marked
+**manual**, so `refresh_auto_kpis()` leaves it alone. Same rule as everywhere
+else: a number a person read off a screen outranks a calculation.
+
+### 0019 — a gap I put in and then closed
+
+0017 gave every active member read on the whole media module. The access matrix
+does not. Goals, the content calendar and the review numbers are now behind a
+media permission; event media plans are unaffected because they live in
+`initiative_media_plan` and follow the event's own rules.
+
+**One deliberate deviation, stated not smuggled:** platforms, content pillars
+and the brand guidelines stay readable by all staff. They are tone-of-voice and
+logo rules that anybody making a poster needs, and the Brand files folder is
+`visible_to_all` for the same reason. There is a check that fails loudly if
+that is ever changed by accident.
+
+### Development pathway
+
+`count_so_far` is recounted from events, roles, tasks, meetings and SOP reads.
+`marked_done` is a separate column the counter never touches — a shura
+judgement does not evaporate the next time the numbers are recalculated. Tested.
+
+"Ready to step up" is a **suggestion, not a promotion**. The system can count
+what somebody has done; it cannot tell you whether they are ready, and the view
+is named and worded so nobody mistakes it for a decision.
+
+The dawah list is built and gated on `teams.is_active` for 'dawah' — in RLS,
+not in the UI. While the team is off the rows cannot be read by anyone,
+**including their own owner and the shura**, and including through the API.
+There is a check that switches it on, proves it appears, and switches it back.
+
+### Resources
+
+Per-folder visibility modelled on SOPs, `visible_to_all` explicit for the same
+reason. The storage bucket's path layout is `resources/<folder id>/<uuid>`,
+which is different from receipts and attachments on purpose: here the first
+segment is the FOLDER, so `can_see_folder()` works directly in the storage
+policy. That gives resources a guarantee the attachments bucket cannot make.
+
+### Dashboard (4.2)
+
+Built from **permissions, not tier**, so a sabiqun given `finance.approve` sees
+the claims waiting without anybody editing the file. Tier is used only where
+the spec names one outright (the Muhsinun "next shift" block). Sections that
+would be empty simply do not render, because RLS has already removed the rows —
+the page never decides what somebody is allowed to know.
+
+Unread SOPs count as unread when never read OR read at an older version, so an
+edited SOP turns a tick back into "needs re-reading" on its own.
+
+### Still to do
+
+- Resources upload form is not built; the bucket and policies are. Files go in
+  through the Supabase dashboard for now.
+- `media_goals` has no UI for creating one.
+- Shot lists have a table and policies but no screen.
+- `refresh_development_progress()` and `refresh_auto_kpis()` are both run by
+  hand. Both belong on the pg_cron schedule beside the safeguarding purge.
