@@ -37,6 +37,26 @@ const ACCOUNTS = {
 
 let failures = 0;
 
+/**
+ * True when the write was refused by a POLICY, rather than by anything
+ * else that happens to produce an error.
+ *
+ * This exists because of a real false pass: while PostgREST's schema
+ * cache was stale, every insert failed with "could not find the table",
+ * and three "cannot do X" checks went green while proving nothing. A
+ * negative check has to know WHY it failed.
+ *
+ * 42501 is Postgres' insufficient_privilege, which is what an RLS
+ * refusal surfaces as. PGRST301/PGRST205 are PostgREST's own "no
+ * permission" and "table not in schema cache" — the second is an
+ * environment fault and must never read as a pass.
+ */
+function deniedByPolicy(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "PGRST205") return false;
+  return error.code === "42501" || /row-level security|violates row-level/i.test(error.message ?? "");
+}
+
 function check(name: string, passed: boolean, detail = "") {
   console.log(`${passed ? "✓" : "✗"} ${name}${passed || !detail ? "" : ` — ${detail}`}`);
   if (!passed) failures += 1;
@@ -139,7 +159,11 @@ async function verify() {
     const { error: writeError } = await muhsin
       .from("member_notes")
       .insert({ profile_id: shuraTarget.id, body: "should be blocked" });
-    check("muhsin cannot write a member note", writeError !== null, "the insert succeeded");
+    check(
+      "muhsin cannot write a member note",
+      deniedByPolicy(writeError),
+      writeError ? `failed, but not by policy: ${writeError.message}` : "the insert succeeded"
+    );
   }
 
   console.log("\n— Per-person overrides —");
@@ -182,9 +206,122 @@ async function verify() {
 
   if (sabiqunRow) {
     await admin.from("profiles").update({ is_active: false }).eq("id", sabiqunRow.id);
+
     check("an inactive member has no permissions", !(await can(sabiqun, "events.propose")));
-    check("an inactive member reads no directory", ((await sabiqun.from("member_directory").select("id")).data?.length ?? 0) === 0);
+
+    // NOT "sees nothing". The "profiles: read own" policy from 0001 is
+    // OR'd with the directory policy, so somebody deactivated can still
+    // read their own row — which is both harmless and necessary, since
+    // routing straight after login depends on it.
+    //
+    // The property that actually matters is that they can no longer see
+    // ANYBODY ELSE. An earlier version of this check asserted zero rows,
+    // failed, and was pointing at correct behaviour.
+    const { data: seen } = await sabiqun.from("member_directory").select("id");
+    check(
+      "an inactive member sees nobody but themselves",
+      (seen ?? []).every((r) => r.id === sabiqunRow.id),
+      `saw ${seen?.length ?? 0} row(s), including other people`
+    );
+
     await admin.from("profiles").update({ is_active: true }).eq("id", sabiqunRow.id);
+  }
+
+  console.log("\n— Tasks (0003) —");
+
+  const { data: shuraRow } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("email", ACCOUNTS.shura)
+    .single();
+
+  const { data: muhsinRow } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("email", ACCOUNTS.muhsin)
+    .single();
+
+  if (shuraRow && muhsinRow) {
+    await admin.from("tasks").delete().eq("title", "rls probe task");
+
+    // Anyone active may make themselves a task.
+    const { error: ownError } = await muhsin
+      .from("tasks")
+      .insert({ title: "rls probe task", owner_id: muhsinRow.id, created_by: muhsinRow.id });
+    check("a muhsin can create a task for themselves", ownError === null, ownError?.message ?? "");
+
+    // Putting one on somebody else needs tasks.assign.
+    const { error: assignError } = await muhsin
+      .from("tasks")
+      .insert({ title: "rls probe task", owner_id: shuraRow.id, created_by: muhsinRow.id });
+    check(
+      "a muhsin CANNOT assign a task to someone else",
+      deniedByPolicy(assignError),
+      assignError ? `failed, but not by policy: ${assignError.message}` : "the insert succeeded"
+    );
+
+    const { error: sabiqunAssign } = await sabiqun
+      .from("tasks")
+      .insert({ title: "rls probe task", owner_id: muhsinRow.id, created_by: sabiqunRow?.id });
+    check("a sabiqun CAN assign a task", sabiqunAssign === null, sabiqunAssign?.message ?? "");
+
+    // "Blocked needs a reason" is a database constraint, so it has to
+    // hold against a direct write, not just against the form.
+    const { error: blockedError } = await admin
+      .from("tasks")
+      .insert({ title: "rls probe task", status: "blocked", owner_id: muhsinRow.id });
+    // Not a policy refusal — this one is the CHECK constraint, so it
+    // has its own code (23514, check_violation).
+    check(
+      "a blocked task with no reason is rejected by the database",
+      blockedError?.code === "23514",
+      blockedError ? `failed, but not by the constraint: ${blockedError.message}` : "it was accepted"
+    );
+
+    // A private task of the shura's must not show up for a muhsin.
+    const { data: shuraTask } = await admin
+      .from("tasks")
+      .insert({ title: "rls probe task", owner_id: shuraRow.id, created_by: shuraRow.id })
+      .select("id")
+      .single();
+
+    if (shuraTask) {
+      const { data: seenByMuhsin } = await muhsin.from("tasks").select("id").eq("id", shuraTask.id);
+      check("a muhsin cannot see someone else's task", (seenByMuhsin?.length ?? 0) === 0);
+
+      const { data: seenByShura } = await shura.from("tasks").select("id").eq("id", shuraTask.id);
+      check("tasks.view_all lets the shura see it", (seenByShura?.length ?? 0) === 1);
+    }
+
+    await admin.from("tasks").delete().eq("title", "rls probe task");
+  }
+
+  console.log("\n— Notifications are private (0003) —");
+
+  if (shuraRow) {
+    await admin.from("notifications").delete().eq("title", "rls probe note");
+    await admin
+      .from("notifications")
+      .insert({ user_id: shuraRow.id, kind: "task_new", title: "rls probe note" });
+
+    const { data: mine } = await shura.from("notifications").select("id").eq("title", "rls probe note");
+    const { data: theirs } = await muhsin.from("notifications").select("id").eq("title", "rls probe note");
+
+    check("you read your own notifications", (mine?.length ?? 0) === 1);
+    check("nobody reads anyone else's notifications", (theirs?.length ?? 0) === 0);
+
+    // Nobody can write one for themselves either — otherwise a
+    // notification proves nothing about who raised it.
+    const { error: forgeError } = await muhsin
+      .from("notifications")
+      .insert({ user_id: shuraRow.id, kind: "task_new", title: "rls probe note" });
+    check(
+      "nobody can raise a notification for someone else",
+      deniedByPolicy(forgeError),
+      forgeError ? `failed, but not by policy: ${forgeError.message}` : "the insert succeeded"
+    );
+
+    await admin.from("notifications").delete().eq("title", "rls probe note");
   }
 
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
