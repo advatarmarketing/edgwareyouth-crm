@@ -10,7 +10,8 @@
     "seed:test-accounts": "tsx scripts/seed-test-accounts.ts",
     "verify:rls": "tsx scripts/verify-rls.ts",
     "seed:sops": "tsx scripts/seed-sops.ts",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "audit:rls": "node --import tsx scripts/audit-rls.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
