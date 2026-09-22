@@ -1,6 +1,6 @@
 # Build state — read this first
 
-Last updated at the end of **Prompt 4a**.
+Last updated at the end of **Prompt 4b**.
 
 ## What this is
 
@@ -114,7 +114,7 @@ wiring (Resend is the obvious pick with Vercel). The bell works regardless.
 
 ## Verified, not just built
 
-`npm run verify:rls` — 47 checks, all passing. Tier defaults; both awkward
+`npm run verify:rls` — 62 checks, all passing. `npm test` — 36 tests. Tier defaults; both awkward
 shapes ("Ansar only", "Sabiqun + Ansar"); the directory's column masking;
 notes isolation; overrides that grant *and* revoke; deactivation; task
 visibility; the blocked-needs-a-reason constraint; notification privacy; and
@@ -187,6 +187,44 @@ on whether "next Friday" means the following week. Rather than guess, 4b's
 review screen must show the resolved **calendar date** rather than echoing
 the phrase, so a minute-taker who meant the other one can see it and change
 it before publishing.
+
+## Done in Prompt 4b
+
+Section 4.6, in `supabase/migrations/0006_meetings.sql`. Driven end to end in
+a browser: created a shura meeting, pasted deliberately messy notes, worked
+the review screen, published, and confirmed the tasks landed.
+
+- Draft actions live in `meeting_actions` and only become `tasks` at publish.
+  `task_id` is set then, which also stops a second press duplicating lists.
+- Unresolved lines are **rows, not React state** — the review screen is not
+  always finished in one sitting.
+- Publish refuses while any action lacks an owner or due date, or any
+  unresolved line remains. Checked in the server action, not just the form.
+- Matters arising goes at the **top** of the agenda, not the end where it
+  gets skipped for time.
+- The review screen shows resolved calendar dates in a date input, never the
+  phrase — the mitigation for 4a's "next Friday" ambiguity.
+- Meeting packs are one notification per person, not one per action.
+- `can_see_meeting()` gives the chair and minute-taker access regardless of
+  visibility, so a non-shura minute-taker can write up a shura meeting.
+- Plus the in-app notes guide, the searchable decision log, and the
+  accountability view (counted from tasks, not minutes).
+
+## The bug the end-to-end run caught
+
+`insert ... returning` evaluates the SELECT policy too. The policies on
+`meetings` and `sops` called `can_see_meeting(id)` / `can_see_sop(id)`, which
+answer by **re-querying the same table** — and a row inserted by the current
+command is invisible to a separate query inside that command. So creating a
+meeting failed with an error naming the *insert*, sending the debugging the
+wrong way. Fixed in 0007 by testing the row's own columns.
+
+**Never write a policy on table X that calls a function which selects from X.**
+
+The RLS suite had thorough coverage of who may READ what and still missed
+this, because it only ever inserted with the service role — testing reads as
+users and writes as god. The regression test now inserts as a real signed-in
+user and reads the id back, for both tables.
 
 ## Three fixes made that were not in the spec
 
