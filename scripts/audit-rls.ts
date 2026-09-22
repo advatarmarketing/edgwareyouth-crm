@@ -42,7 +42,9 @@ async function sql<T>(query: string): Promise<T[]> {
       apikey: serviceKey!,
       Authorization: `Bearer ${serviceKey}`,
     },
-    body: JSON.stringify({ p_query: query }),
+    // Trimmed here too. The database guard handles untidy input
+    // since 0021, but sending it clean costs nothing.
+    body: JSON.stringify({ p_query: query.trim() }),
   });
 
   if (!response.ok) {
