@@ -112,6 +112,30 @@ Sections 4.1, 4.4, 4.7 and 4.16, in
 Email is **not** sent yet. `notify()` writes the row; a sender still needs
 wiring (Resend is the obvious pick with Vercel). The bell works regardless.
 
+## Verified, not just built
+
+`npm run verify:rls` — 34 checks, all passing. Tier defaults; both awkward
+shapes ("Ansar only", "Sabiqun + Ansar"); the directory's column masking;
+notes isolation; overrides that grant *and* revoke; deactivation; task
+visibility; the blocked-needs-a-reason constraint; notification privacy.
+
+Smoke-tested in a browser: signed in as `shura@test.local` and
+`muhsin@test.local`. The nav, the invite button and the inactive filter all
+change with the permission set, and the directory renders every tier shape
+correctly.
+
+**Two lessons from that first run, both now baked into the suite:**
+
+1. One failure was the *test*, not the policy — it asserted an inactive member
+   sees zero rows, when they correctly still see their own. Check the
+   behaviour before changing the schema.
+2. Three "cannot do X" checks passed while proving nothing: PostgREST's schema
+   cache was stale, every insert failed with "could not find the table", and
+   the negative assertions went green on the wrong error. Negative checks now
+   require a policy refusal (42501) or the CHECK constraint (23514);
+   `PGRST205` can never read as a pass. A security test that passes for the
+   wrong reason is worse than no test.
+
 ## Three fixes made that were not in the spec
 
 1. **`next` 14.2.15 → 14.2.35.** The pinned version has a published security
