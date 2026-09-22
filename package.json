@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "seed:test-accounts": "tsx scripts/seed-test-accounts.ts",
-    "verify:rls": "tsx scripts/verify-rls.ts"
+    "verify:rls": "tsx scripts/verify-rls.ts",
+    "seed:sops": "tsx scripts/seed-sops.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

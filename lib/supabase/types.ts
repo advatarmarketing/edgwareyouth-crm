@@ -158,6 +158,43 @@ export type NotificationPreference = {
   email_enabled: boolean;
 };
 
+export type SopStatus = "draft" | "published";
+
+export type Sop = {
+  id: string;
+  title: string;
+  category: string;
+  body: string;
+  checklist_id: string | null;
+  status: SopStatus;
+  version: number;
+  visible_to_all: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SopVisibleTier = { sop_id: string; tier_key: TierKey };
+export type SopVisibleTeam = { sop_id: string; team_key: TeamKey };
+export type SopVisiblePerson = { sop_id: string; profile_id: string };
+
+export type SopRead = {
+  sop_id: string;
+  profile_id: string;
+  version_read: number;
+  read_at: string;
+};
+
+export type SopVersion = {
+  id: string;
+  sop_id: string;
+  version: number;
+  title: string;
+  body: string;
+  changed_by: string | null;
+  changed_at: string;
+};
+
 export type Profile = {
   id: string;
   full_name: string | null;
@@ -250,6 +287,12 @@ export type Database = {
       task_comments: Table<TaskComment, Pick<TaskComment, "task_id" | "body"> & Partial<TaskComment>>;
       notifications: Table<AppNotification, Pick<AppNotification, "user_id" | "kind" | "title"> & Partial<AppNotification>>;
       notification_preferences: Table<NotificationPreference, NotificationPreference>;
+      sops: Table<Sop, Pick<Sop, "title"> & Partial<Sop>>;
+      sop_visible_tiers: Table<SopVisibleTier, SopVisibleTier>;
+      sop_visible_teams: Table<SopVisibleTeam, SopVisibleTeam>;
+      sop_visible_people: Table<SopVisiblePerson, SopVisiblePerson>;
+      sop_reads: Table<SopRead, SopRead>;
+      sop_versions: Table<SopVersion, Omit<SopVersion, "id" | "changed_at"> & Partial<SopVersion>>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -266,6 +309,7 @@ export type Database = {
       is_active_member: { Args: Record<string, never>; Returns: boolean };
       my_permissions: { Args: Record<string, never>; Returns: string[] };
       can_see_task: { Args: { p_task_id: string }; Returns: boolean };
+      can_see_sop: { Args: { p_sop_id: string }; Returns: boolean };
     };
     Enums: {};
     CompositeTypes: {};
