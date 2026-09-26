@@ -42,6 +42,8 @@ const LINKS: NavLink[] = [
   { href: "/app/dashboard", label: "Dashboard", icon: "dashboard" },
   { href: "/app/members", label: "Members", icon: "clients", needs: "members.view_directory" },
   { href: "/app/tasks", label: "Tasks", icon: "todo" },
+  // No `needs`: everybody has a private notebook.
+  { href: "/app/notes", label: "Notes", icon: "notes" },
   { href: "/app/calendar", label: "Calendar", icon: "calendar" },
   { href: "/app/meetings", label: "Meetings", icon: "week", needs: "meetings.manage" },
   { href: "/app/events", label: "Events", icon: "work" },

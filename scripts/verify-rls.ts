@@ -1208,6 +1208,149 @@ async function verify() {
     }
   }
 
+  console.log("\n— Notes are private, and so are their to-do lists (0022) —");
+
+  {
+    const { data: muhsinProfile } = await admin
+      .from("profiles").select("id").eq("email", ACCOUNTS.muhsin).single();
+
+    if (muhsinProfile) {
+      await admin.from("notes").delete().eq("owner_id", muhsinProfile.id).like("title", "rls probe%");
+      await admin.from("note_folders").delete().eq("owner_id", muhsinProfile.id).like("name", "rls probe%");
+      await admin.from("tasks").delete().eq("owner_id", muhsinProfile.id).like("title", "rls probe%");
+
+      // Everything below is done AS THE MUHSIN, not the service role —
+      // the lesson from 0007 was that writes tested as god hide bugs.
+      const { data: folder, error: folderError } = await muhsin
+        .from("note_folders").insert({ name: "rls probe folder" }).select("id").single();
+      check("a member can make a folder and read its id back", !!folder, folderError?.message);
+
+      const { data: note, error: noteError } = await muhsin
+        .from("notes").insert({ title: "rls probe note", folder_id: folder?.id ?? null })
+        .select("id").single();
+      check("and a note in it", !!note, noteError?.message);
+
+      if (note) {
+        const { data: block } = await muhsin
+          .from("note_blocks")
+          .insert({ note_id: note.id, kind: "text", position: 0, body: "private thoughts\n- ring the venue\n- buy dates" })
+          .select("id").single();
+
+        // The to-do list enterer, end to end through the real function.
+        const { error: todoError } = await muhsin.rpc("make_note_todo", {
+          p_block_id: block!.id,
+          p_before: "private thoughts",
+          p_items: [
+            { text: "rls probe ring the venue", depth: 0, done: false },
+            { text: "rls probe buy dates", depth: 0, done: true },
+          ],
+          p_after: "",
+          p_title: "rls probe to-do",
+        });
+        check("turning lines into a to-do list works as the member", !todoError, todoError?.message);
+
+        const { data: myTask } = await muhsin
+          .from("tasks").select("id, checklist_id, source").eq("title", "rls probe to-do").maybeSingle();
+        check("it appears in their own tasks", myTask?.source === "note");
+
+        const { data: myItems } = await muhsin
+          .from("checklist_items").select("text, done").eq("checklist_id", myTask?.checklist_id ?? "");
+        check(
+          "with its items, and a pre-ticked line arrives ticked",
+          (myItems ?? []).length === 2 && (myItems ?? []).some((i) => i.text === "rls probe buy dates" && i.done),
+        );
+
+        // THE point of the privacy change. The shura hold tasks.view_all
+        // and could previously read every task and checklist.
+        const { data: shuraNotes } = await shura.from("notes").select("id").eq("id", note.id);
+        check("the shura cannot open somebody else's note", (shuraNotes?.length ?? 0) === 0);
+
+        const { data: shuraBlocks } = await shura.from("note_blocks").select("id").eq("note_id", note.id);
+        check("nor read what is written in it", (shuraBlocks?.length ?? 0) === 0);
+
+        const { data: shuraFolders } = await shura.from("note_folders").select("id").eq("id", folder!.id);
+        check("nor see their folders", (shuraFolders?.length ?? 0) === 0);
+
+        if (myTask) {
+          const { data: shuraTask } = await shura.from("tasks").select("id").eq("id", myTask.id);
+          check(
+            "a to-do list made from a note is hidden from the shura's task views",
+            (shuraTask?.length ?? 0) === 0,
+            "tasks.view_all can still see it — the note's lines are leaking",
+          );
+
+          const { data: shuraItems } = await shura
+            .from("checklist_items").select("id").eq("checklist_id", myTask.checklist_id ?? "");
+          check(
+            "and so are its items, through the checklist side door too",
+            (shuraItems?.length ?? 0) === 0,
+          );
+
+          // tasks.assign could previously edit anybody's task.
+          await sabiqun.from("tasks").update({ title: "rls probe hijacked" }).eq("id", myTask.id);
+          const { data: afterHijack } = await admin.from("tasks").select("title").eq("id", myTask.id).single();
+          check("nobody else can edit it", afterHijack?.title === "rls probe to-do",
+            `it now reads: ${afterHijack?.title}`);
+
+          // Ticking in the note is ticking the task: one row, not a copy.
+          const venue = (myItems ?? []).find((i) => i.text === "rls probe ring the venue");
+          if (venue) {
+            const { data: before } = await admin.from("notes").select("updated_at").eq("id", note.id).single();
+            await muhsin.from("checklist_items").update({ done: true })
+              .eq("checklist_id", myTask.checklist_id ?? "").eq("text", "rls probe ring the venue");
+            const { data: after } = await admin.from("notes").select("updated_at").eq("id", note.id).single();
+            check(
+              "ticking an item moves the note to the top of the list",
+              !!before && !!after && after.updated_at > before.updated_at,
+            );
+          }
+        }
+
+        // Nobody writes a task into another person's notebook.
+        const { error: planted } = await sabiqun.from("tasks").insert({
+          title: "rls probe planted", owner_id: muhsinProfile.id, source: "note",
+        });
+        check(
+          "nobody can create a note task owned by somebody else",
+          deniedByPolicy(planted),
+          planted ? `${planted.code}: ${planted.message}` : "it was created",
+        );
+
+        // Regression: ordinary tasks are exactly as visible as before.
+        await admin.from("tasks").delete().eq("title", "rls probe ordinary");
+        const { data: ordinary } = await muhsin
+          .from("tasks").insert({ title: "rls probe ordinary", owner_id: muhsinProfile.id })
+          .select("id").single();
+        const { data: shuraOrdinary } = await shura.from("tasks").select("id").eq("id", ordinary?.id ?? "");
+        check(
+          "but an ordinary task is still visible to the shura, as it always was",
+          (shuraOrdinary?.length ?? 0) === 1,
+        );
+        await admin.from("tasks").delete().eq("title", "rls probe ordinary");
+
+        // Deleting a note must work (the cascade guard in 0022) and must
+        // leave its to-do list in the Tasks tab.
+        const { error: deleteError } = await muhsin.from("notes").delete().eq("id", note.id);
+        check("a note can be deleted", !deleteError, deleteError?.message);
+        if (myTask) {
+          const { data: survivor } = await muhsin.from("tasks").select("id").eq("id", myTask.id);
+          check("and its to-do list stays in their tasks", (survivor?.length ?? 0) === 1);
+        }
+      }
+
+      // A deleted folder unfiles its notes rather than deleting them.
+      const { data: keeper } = await muhsin
+        .from("notes").insert({ title: "rls probe keeper", folder_id: folder?.id ?? null }).select("id").single();
+      await muhsin.from("note_folders").delete().eq("id", folder?.id ?? "");
+      const { data: kept } = await muhsin.from("notes").select("folder_id").eq("id", keeper?.id ?? "").maybeSingle();
+      check("deleting a folder unfiles its notes instead of deleting them",
+        kept != null && kept.folder_id == null);
+
+      await admin.from("notes").delete().eq("owner_id", muhsinProfile.id).like("title", "rls probe%");
+      await admin.from("tasks").delete().eq("owner_id", muhsinProfile.id).like("title", "rls probe%");
+    }
+  }
+
   console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);
 }

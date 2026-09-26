@@ -48,3 +48,25 @@ export function daysSince(dateStr: string | null | undefined): number | null {
   const ms = startOfToday().getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   return Math.max(0, Math.round(ms / 86400000));
 }
+
+/**
+ * A moment as somebody in Edgware would read it: "26 Sep 2026, 09:12".
+ *
+ * The time zone is pinned to London rather than left to the machine.
+ * Pages render on Vercel's servers, which run on UTC, so an unpinned
+ * format shows every time an hour early for the half of the year the UK
+ * is on BST — "updated 08:12" for something you changed at 09:12, which
+ * is exactly the kind of small wrongness that makes people stop
+ * trusting a timestamp.
+ */
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("en-GB", {
+    timeZone: "Europe/London",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}

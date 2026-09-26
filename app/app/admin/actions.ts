@@ -94,13 +94,44 @@ export async function inviteMember(_prev: ActionState, formData: FormData): Prom
     return { error: "Pick a tier, or tick the Ansar badge for someone who is Ansar only.", ok: null };
   }
 
-  const admin = createAdminClient();
+  // Refuse rather than send a broken link. The address in the email is
+  // wherever THIS copy of the app thinks it lives — and a copy running on
+  // somebody's laptop thinks it lives at localhost, which is a link that
+  // works on exactly one computer and it is not the recipient's. That is
+  // how the first real invite went out.
   const base = siteUrl();
+  if (!base || isLocalAddress(base)) {
+    return {
+      error:
+        "Invites can only be sent from the live site. This copy is running on your own " +
+        "computer, so the link in the email would point back at it and not work for anyone else.",
+      ok: null,
+    };
+  }
 
+  const admin = createAdminClient();
+
+  // /welcome, not /login. An invited person has an account and no
+  // password, so a sign-in page is the one place they cannot get past.
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
     data: { full_name: fullName || null },
-    redirectTo: base ? `${base}/login` : undefined,
+    redirectTo: `${base}/welcome`,
   });
+
+  // Already has an account. Supabase refuses a second invite to anyone
+  // who has clicked their first one — and clicking it is enough, even if
+  // the page they landed on was broken. Send a set-your-password link
+  // instead, which lands on the same /welcome page.
+  if (inviteError && /already been registered|already exists/i.test(inviteError.message)) {
+    const { error: resetError } = await admin.auth.resetPasswordForEmail(email, {
+      redirectTo: `${base}/welcome`,
+    });
+    if (resetError) return { error: resetError.message, ok: null };
+    return {
+      error: null,
+      ok: `${email} already has an account, so they have been sent a fresh link to set their password instead.`,
+    };
+  }
 
   if (inviteError || !invited?.user) {
     return { error: inviteError?.message ?? "Could not send the invite.", ok: null };
@@ -122,4 +153,19 @@ export async function inviteMember(_prev: ActionState, formData: FormData): Prom
 
   revalidatePath("/app/members");
   return { error: null, ok: `Invite sent to ${email}.` };
+}
+
+function isLocalAddress(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "[::1]" ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".local")
+    );
+  } catch {
+    return true;
+  }
 }

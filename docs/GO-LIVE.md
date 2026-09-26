@@ -17,6 +17,8 @@ One file at a time, in this order. Each one should say "Success".
 | `0018_storage_resources.sql` | The resources file store | Send me the error |
 | `0019_tighten_media_visibility.sql` | Closes a gap `0017` opened | Send me the error |
 | `0020_audit_helper.sql` | Lets the audit script read the database's own settings | Optional — only the audit needs it |
+| `0021_fix_audit_helper_trim.sql` | Fixes `0020`, which refused every query | Send me the error |
+| `0022_notes.sql` | Notes, folders and to-do lists — and makes to-dos from notes private | Send me the error |
 
 Then check the scheduled deletion is actually scheduled:
 
@@ -80,10 +82,37 @@ send me the output — do not go live around them.
 
 Supabase → **Authentication → URL Configuration**:
 
-- **Site URL**: your Vercel address
+- **Site URL**: your Vercel address, e.g. `https://edgwareyouth-crm.vercel.app`
 - **Redirect URLs**: add your Vercel address with `/**` on the end
 
-Without this, password reset emails send people to the wrong place.
+**This is not optional.** When an invite asks Supabase to send somebody to an
+address that is not on that list, Supabase does not refuse — it quietly sends
+them to the Site URL instead. If the Site URL is still `http://localhost:3000`,
+every invite lands on a page that only exists on your laptop. That is exactly
+what happened to the first real invite.
+
+Invites now go to `/welcome`, where the person creates their password. The app
+also refuses to send an invite at all from a copy running on your own computer,
+because the link would point back at it.
+
+### Optional, but better: the invite email template
+
+Supabase → **Authentication → Email Templates → Invite user**. Replace the link
+with:
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/welcome">Accept the invite</a>
+```
+
+and in **Reset password**:
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/welcome">Choose a new password</a>
+```
+
+The default links work — `/welcome` handles them — but these verify the link on
+the server, so the sign-in never passes through the address bar. Supabase
+recommends this for sites built the way this one is.
 
 ---
 

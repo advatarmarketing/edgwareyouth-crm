@@ -645,3 +645,57 @@ edited SOP turns a tick back into "needs re-reading" on its own.
 - Shot lists have a table and policies but no screen.
 - `refresh_development_progress()` and `refresh_auto_kpis()` are both run by
   hand. Both belong on the pg_cron schedule beside the safeguarding purge.
+
+
+## After go-live: invites, and Notes
+
+### The invite that went to localhost
+
+Three faults stacked:
+
+1. `.env.local` sets `NEXT_PUBLIC_SITE_URL` to localhost, so an invite sent from
+   the copy on the laptop put `localhost` in the email. The invite action now
+   **refuses** to send from a local address rather than emailing a dead link.
+2. `redirectTo` pointed at `/login` — a dead end for somebody with no password.
+   It now points at `/welcome`.
+3. Nothing handled the link. `/welcome` now reads the session out of the URL
+   fragment (default Supabase template) and `/auth/confirm` verifies a
+   `token_hash` on the server (the recommended template, in GO-LIVE.md). Both
+   land on a create-your-password form.
+
+A person who already clicked a broken invite is confirmed as far as Supabase is
+concerned, so a second invite is refused. The action falls back to a
+set-your-password email in that case, which lands on the same page.
+
+Supabase's Redirect URLs allowlist must include the live site. If it does not,
+Supabase silently sends people to the Site URL instead — the most likely reason
+the first invite went to localhost even with the right address in the request.
+
+### Notes — migration `0022`
+
+Folders, notes sorted by last update, and a "Make to-do list" button that turns
+the highlighted lines of a note into a checklist which is **also a task** in the
+Tasks tab. One set of rows, not a copy: ticking in either place ticks both.
+
+**Private to the owner, including from the shura.** That forced a change to
+tasks: `tasks.view_all` previously let every shura member read every task and
+its checklist, so a to-do list made from a note would have published the note's
+lines. Tasks with `source = 'note'` are now owner-only in the read, update,
+delete and insert policies and in `can_see_task()`. Every other kind of task is
+untouched, and a regression check proves the shura still see ordinary tasks.
+
+Decisions worth keeping:
+
+- A selection is widened to **whole lines** (`lib/notes/selection.ts`, 9 tests).
+  Nobody means to turn "ng the ven" into a to-do and leave "ri" and "ue" behind.
+- The client sends the block's **current** text with the selection, because the
+  offsets describe the screen, not the last save. And it clears its dirty flag
+  before the request, or the textarea's blur would save the full text back over
+  the split and the lines would appear twice.
+- `make_note_todo()` is **SECURITY INVOKER** — the opposite of most helpers — so
+  every write it makes is checked by the owner-only policies.
+- Deleting a folder **unfiles** its notes. Deleting a note **keeps** its to-do
+  lists in Tasks. Neither silently destroys something somebody is halfway
+  through.
+- Times are pinned to `Europe/London` in `formatDateTime()`. Vercel renders on
+  UTC, which would show every time an hour early during BST.

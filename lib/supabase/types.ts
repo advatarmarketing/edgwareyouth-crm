@@ -79,7 +79,7 @@ export type PermissionKey =
   | "tasks.view_all"
   | "calendar.view_org";
 
-export type ChecklistSource = "sop" | "meeting" | "event" | "okr" | "manual";
+export type ChecklistSource = "sop" | "meeting" | "event" | "okr" | "manual" | "note";
 export type TaskStatus = "todo" | "doing" | "done" | "blocked";
 export type TaskPriority = "low" | "normal" | "high";
 
@@ -1353,6 +1353,44 @@ export type Resource = {
   created_at: string;
 };
 
+// ---------------------------------------------------------------
+// Notes (0022) — private to their owner, including from the shura
+// ---------------------------------------------------------------
+
+export type NoteFolder = {
+  id: string;
+  owner_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Note = {
+  id: string;
+  owner_id: string;
+  /** Null means unfiled. Deleting a folder unfiles its notes. */
+  folder_id: string | null;
+  title: string;
+  created_at: string;
+  /** Moves on any change, including a to-do ticked from the Tasks tab. */
+  updated_at: string;
+};
+
+/**
+ * A note is a run of blocks. A "todo" block is a real checklist
+ * attached to a real task — not text that looks like one.
+ */
+export type NoteBlock = {
+  id: string;
+  note_id: string;
+  position: number;
+  kind: "text" | "todo";
+  body: string;
+  task_id: string | null;
+  checklist_id: string | null;
+  created_at: string;
+};
+
 type Table<Row, Ins = Partial<Row>, Upd = Partial<Row>> = {
   Row: Row;
   Insert: Ins;
@@ -1470,6 +1508,10 @@ export type Database = {
       resource_folder_tiers: Table<ResourceFolderTier, ResourceFolderTier>;
       resource_folder_teams: Table<ResourceFolderTeam, ResourceFolderTeam>;
       resources: Table<Resource, Pick<Resource, "folder_id" | "title"> & Partial<Resource>>;
+
+      note_folders: Table<NoteFolder, Pick<NoteFolder, "name"> & Partial<NoteFolder>>;
+      notes: Table<Note, Partial<Note>>;
+      note_blocks: Table<NoteBlock, Pick<NoteBlock, "note_id" | "kind"> & Partial<NoteBlock>>;
     };
 
     // `{}`, not `Record<string, never>`. supabase-js resolves a table
@@ -1515,6 +1557,11 @@ export type Database = {
       dawah_is_live: { Args: Record<string, never>; Returns: boolean };
       refresh_development_progress: { Args: Record<string, never>; Returns: number };
       build_initiative_media_plan: { Args: { p_id: string }; Returns: number };
+      make_note_todo: {
+        Args: { p_block_id: string; p_before: string; p_items: unknown; p_after: string; p_title: string };
+        Returns: string;
+      };
+      note_todo_to_text: { Args: { p_block_id: string }; Returns: undefined };
     };
     Enums: {};
     CompositeTypes: {};
