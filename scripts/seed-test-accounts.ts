@@ -67,13 +67,26 @@ async function seed() {
 
     let userId = created?.user?.id;
 
-    // Already there from a previous run — find them rather than fail.
+    // Already there from a previous run — find them rather than fail,
+    // and put the password BACK to the known one. Without this, anybody
+    // who changed a test account's password through the app locked
+    // everyone else out of it, and verify-rls — which signs in with
+    // this password — started failing for a reason that had nothing to
+    // do with the policies it tests.
     if (createError) {
       const { data: list } = await admin.auth.admin.listUsers();
       userId = list?.users.find((u) => u.email === account.email)?.id;
 
       if (!userId) {
         console.error(`✗ ${account.email}: ${createError.message}`);
+        continue;
+      }
+
+      const { error: resetError } = await admin.auth.admin.updateUserById(userId, {
+        password: account.password,
+      });
+      if (resetError) {
+        console.error(`✗ ${account.email}: could not reset password — ${resetError.message}`);
         continue;
       }
     }
@@ -89,6 +102,9 @@ async function seed() {
         tier: account.tier,
         is_ansar: account.is_ansar,
         position: account.position ?? null,
+        // A deactivated test account signs in and is then shown nothing,
+        // which looks exactly like a broken policy. Reactivate on re-seed.
+        is_active: true,
       })
       .eq("id", userId!);
 
